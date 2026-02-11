@@ -16,6 +16,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'news',      label: 'News',      icon: '📰' },
   { id: 'reports',   label: 'Reports',   icon: '📋' },
   { id: 'analytics', label: 'Analytics', icon: '📈' },
+  { id: 'invest',    label: 'Invest',    icon: '📌' },
   { id: 'settings',  label: 'Settings',  icon: '⚙️' },
 ];
 

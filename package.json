@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "concurrently -k -n backend,frontend -c cyan,magenta \"npm run start:backend\" \"npm run start:frontend\"",
-    "start:backend": ".venv\\Scripts\\python.exe citadel\\run_citadel.py",
+    "start:backend": "set PYTHONUNBUFFERED=1 && .venv\\Scripts\\python.exe -u citadel\\run_citadel.py",
     "start:frontend": "npm run dev --prefix citadel/src-ui"
   },
   "devDependencies": {

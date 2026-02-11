@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Trading from './pages/Trading';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
+import Invest from './pages/Invest';
 
 const PAGE_MAP: Record<string, React.FC> = {
   dashboard: Dashboard,
@@ -31,6 +32,7 @@ const PAGE_MAP: Record<string, React.FC> = {
   news: NewsPage,
   reports: Reports,
   analytics: Analytics,
+  invest: Invest,
   settings: Settings,
 };
 

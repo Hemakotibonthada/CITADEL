@@ -4,15 +4,17 @@
  */
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useStore, type SystemSettings } from '../store';
+import { useStore, type SystemSettings, type HardwareInfo, type DataSourcesResponse } from '../store';
 
-type SettingsSection = 'general' | 'trading' | 'notifications' | 'data' | 'about';
+type SettingsSection = 'general' | 'trading' | 'notifications' | 'data' | 'data-sources' | 'hardware' | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string; icon: string }[] = [
   { id: 'general',       label: 'General',       icon: '⚙️' },
   { id: 'trading',       label: 'Trading',       icon: '💹' },
   { id: 'notifications', label: 'Notifications', icon: '🔔' },
   { id: 'data',          label: 'Data & Export',  icon: '💾' },
+  { id: 'data-sources',  label: 'Data Sources',   icon: '🔗' },
+  { id: 'hardware',      label: 'Hardware',       icon: '🖥️' },
   { id: 'about',         label: 'About',         icon: 'ℹ️' },
 ];
 
@@ -87,10 +89,21 @@ export default function Settings() {
   const fetchSettings = useStore((s) => s.fetchSettings);
   const updateSettings = useStore((s) => s.updateSettings);
   const addToast = useStore((s) => s.addToast);
+  const hardwareInfo = useStore((s) => s.hardwareInfo);
+  const fetchHardware = useStore((s) => s.fetchHardware);
+  const dataSources = useStore((s) => s.dataSources);
+  const fetchDataSources = useStore((s) => s.fetchDataSources);
   const [local, setLocal] = useState<SystemSettings>(settings);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => { fetchSettings(); }, [fetchSettings]);
+  useEffect(() => { fetchSettings(); fetchHardware(); fetchDataSources(); }, [fetchSettings, fetchHardware, fetchDataSources]);
+
+  // Auto-refresh hardware data every 5 seconds when on hardware tab
+  useEffect(() => {
+    if (section !== 'hardware') return;
+    const interval = setInterval(fetchHardware, 5000);
+    return () => clearInterval(interval);
+  }, [section, fetchHardware]);
   useEffect(() => { setLocal(settings); setDirty(false); }, [settings]);
 
   const update = (patch: Partial<SystemSettings>) => {
@@ -313,6 +326,243 @@ export default function Settings() {
                     </button>
                   </div>
                 </div>
+              </>
+            )}
+
+            {section === 'data-sources' && (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-citadel-text">Data Sources & API Integrations</h2>
+                  <button
+                    onClick={fetchDataSources}
+                    className="text-[10px] px-2 py-1 rounded-lg border border-citadel-border text-citadel-muted hover:text-citadel-accent hover:border-citadel-accent/30 transition-colors"
+                  >
+                    ↻ Refresh
+                  </button>
+                </div>
+                {dataSources ? (
+                  <div className="space-y-4">
+                    {/* Summary bar */}
+                    <div className="flex gap-3">
+                      <div className="flex-1 p-3 bg-citadel-surface rounded-xl border border-citadel-border text-center">
+                        <p className="text-xl font-bold text-citadel-text">{dataSources.summary.total}</p>
+                        <p className="text-[10px] text-citadel-muted">Total Sources</p>
+                      </div>
+                      <div className="flex-1 p-3 bg-citadel-surface rounded-xl border border-citadel-border text-center">
+                        <p className="text-xl font-bold text-citadel-accent">{dataSources.summary.configured}</p>
+                        <p className="text-[10px] text-citadel-muted">Configured</p>
+                      </div>
+                      <div className="flex-1 p-3 bg-citadel-surface rounded-xl border border-citadel-border text-center">
+                        <p className="text-xl font-bold text-green-400">{dataSources.summary.connected}</p>
+                        <p className="text-[10px] text-citadel-muted">Connected</p>
+                      </div>
+                    </div>
+
+                    {/* Source cards */}
+                    {dataSources.sources.map((src) => (
+                      <div
+                        key={src.id}
+                        className={`p-4 rounded-xl border transition-all ${
+                          src.status === 'connected'
+                            ? 'bg-green-500/5 border-green-500/20'
+                            : src.configured
+                            ? 'bg-amber-500/5 border-amber-500/20'
+                            : 'bg-citadel-surface border-citadel-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className="text-xl">{src.icon}</span>
+                          <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-citadel-text">{src.name}</h3>
+                            <p className="text-[10px] text-citadel-muted capitalize">{src.type}</p>
+                          </div>
+                          <span
+                            className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                              src.status === 'connected'
+                                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                : src.status === 'not_configured'
+                                ? 'bg-citadel-dark text-citadel-muted border border-citadel-border'
+                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                            }`}
+                          >
+                            {src.status === 'connected' ? '● Connected' : src.status === 'not_configured' ? '○ Not Configured' : `⚠ ${src.status}`}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          <div>
+                            <p className="text-[10px] text-citadel-muted">Endpoint</p>
+                            <p className="text-xs text-citadel-text font-mono truncate">{src.base_url}</p>
+                          </div>
+                          {src.s3_endpoint && (
+                            <div>
+                              <p className="text-[10px] text-citadel-muted">S3 Endpoint</p>
+                              <p className="text-xs text-citadel-text font-mono truncate">{src.s3_endpoint}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1">
+                          {src.features.map((f) => (
+                            <span
+                              key={f}
+                              className="px-2 py-0.5 rounded-full text-[9px] bg-citadel-dark text-citadel-muted border border-citadel-border"
+                            >
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-citadel-muted text-center py-8">Loading data sources...</div>
+                )}
+              </>
+            )}
+
+            {section === 'hardware' && (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-citadel-text">Hardware Profile</h2>
+                  <span className="text-[10px] text-citadel-muted animate-pulse">● Live — auto-refreshing</span>
+                </div>
+                {hardwareInfo ? (
+                  <div className="space-y-5">
+                    {/* CPU */}
+                    <div className="p-4 bg-citadel-surface rounded-xl border border-citadel-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">🧠</span>
+                        <h3 className="text-sm font-semibold text-citadel-text">Processor (CPU)</h3>
+                        <span className="ml-auto text-xs font-mono text-citadel-accent">{hardwareInfo.cpu.usage_percent?.toFixed(1) ?? 0}%</span>
+                      </div>
+                      {/* CPU usage bar */}
+                      <div className="w-full h-2 bg-citadel-dark rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${hardwareInfo.cpu.usage_percent ?? 0}%`,
+                            background: (hardwareInfo.cpu.usage_percent ?? 0) > 80
+                              ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                              : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><p className="text-[10px] text-citadel-muted">Model</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.cpu.model}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Architecture</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.cpu.architecture}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Cores / Threads</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.cpu.cores}C / {hardwareInfo.cpu.threads}T</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Clock Speed</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.cpu.base_clock_ghz || '–'} – {hardwareInfo.cpu.boost_clock_ghz || '–'} GHz (now {hardwareInfo.cpu.current_freq_ghz ?? '–'} GHz)</p></div>
+                      </div>
+                    </div>
+
+                    {/* Memory */}
+                    <div className="p-4 bg-citadel-surface rounded-xl border border-citadel-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">💾</span>
+                        <h3 className="text-sm font-semibold text-citadel-text">Memory (RAM)</h3>
+                        <span className="ml-auto text-xs font-mono text-citadel-accent">{hardwareInfo.memory.used_gb?.toFixed(1) ?? 0} / {hardwareInfo.memory.total_gb} GB</span>
+                      </div>
+                      {/* RAM usage bar */}
+                      <div className="w-full h-2 bg-citadel-dark rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${hardwareInfo.memory.usage_percent ?? 0}%`,
+                            background: (hardwareInfo.memory.usage_percent ?? 0) > 85
+                              ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                              : 'linear-gradient(90deg, #10b981, #06b6d4)',
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div><p className="text-[10px] text-citadel-muted">Available</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.memory.available_gb?.toFixed(1) ?? '–'} GB</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Speed</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.memory.speed_mt ? `${hardwareInfo.memory.speed_mt} MT/s` : 'Auto-detected'}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Type</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.memory.type}</p></div>
+                      </div>
+                    </div>
+
+                    {/* GPU */}
+                    <div className="p-4 bg-citadel-surface rounded-xl border border-citadel-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">🎮</span>
+                        <h3 className="text-sm font-semibold text-citadel-text">Graphics (GPU)</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><p className="text-[10px] text-citadel-muted">Model</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.gpu.model}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">VRAM</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.gpu.vram_gb ? `${hardwareInfo.gpu.vram_gb} GB` : 'Shared'}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Type</p><p className="text-sm text-citadel-text font-medium capitalize">{hardwareInfo.gpu.type}</p></div>
+                        <div>
+                          <p className="text-[10px] text-citadel-muted">Acceleration</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {hardwareInfo.gpu.cuda_available && <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/10 text-green-400 border border-green-500/20">CUDA</span>}
+                            {hardwareInfo.gpu.xpu_available && <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">XPU</span>}
+                            {!hardwareInfo.gpu.cuda_available && !hardwareInfo.gpu.xpu_available && <span className="text-sm text-citadel-muted">CPU fallback</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* NPU */}
+                    {hardwareInfo.npu.model && (
+                      <div className="p-4 bg-gradient-to-r from-blue-500/5 to-purple-500/5 rounded-xl border border-blue-500/20">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-lg">🤖</span>
+                          <h3 className="text-sm font-semibold text-citadel-text">AI Accelerator (NPU)</h3>
+                          {hardwareInfo.npu.enabled && <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-citadel-accent/10 text-citadel-accent border border-citadel-accent/20">Active</span>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div><p className="text-[10px] text-citadel-muted">Model</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.npu.model}</p></div>
+                          <div><p className="text-[10px] text-citadel-muted">Purpose</p><p className="text-sm text-citadel-text font-medium">Local AI / LLM Inference</p></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Storage */}
+                    <div className="p-4 bg-citadel-surface rounded-xl border border-citadel-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">💽</span>
+                        <h3 className="text-sm font-semibold text-citadel-text">Storage</h3>
+                        <span className="ml-auto text-xs font-mono text-citadel-accent">{hardwareInfo.storage.used_gb?.toFixed(1) ?? 0} / {hardwareInfo.storage.capacity_gb} GB</span>
+                      </div>
+                      {/* Disk usage bar */}
+                      <div className="w-full h-2 bg-citadel-dark rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${hardwareInfo.storage.usage_percent ?? 0}%`,
+                            background: (hardwareInfo.storage.usage_percent ?? 0) > 90
+                              ? 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                              : 'linear-gradient(90deg, #8b5cf6, #ec4899)',
+                          }}
+                        />
+                      </div>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div><p className="text-[10px] text-citadel-muted">Model</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.storage.model}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Free</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.storage.free_gb?.toFixed(1) ?? '–'} GB</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Interface</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.storage.interface || 'Auto-detected'}</p></div>
+                      </div>
+                    </div>
+
+                    {/* Compute Environment */}
+                    <div className="p-4 bg-citadel-surface rounded-xl border border-citadel-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-lg">⚡</span>
+                        <h3 className="text-sm font-semibold text-citadel-text">Compute Environment</h3>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><p className="text-[10px] text-citadel-muted">Active Device</p><p className="text-sm text-citadel-accent font-semibold uppercase">{hardwareInfo.compute.resolved_device}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">PyTorch</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.compute.pytorch_version}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Python</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.compute.python_version}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">OS</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.compute.os}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Max Workers</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.compute.max_workers}</p></div>
+                        <div><p className="text-[10px] text-citadel-muted">Shared Memory</p><p className="text-sm text-citadel-text font-medium">{hardwareInfo.compute.shared_memory_mb} MB</p></div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-citadel-muted text-center py-8">Loading hardware information...</div>
+                )}
               </>
             )}
 

@@ -404,7 +404,14 @@ class VectorStore:
         self._init_index()
 
     def _init_index(self) -> None:
-        """Initialize or load FAISS index."""
+        """Initialize or load FAISS index — use numpy fallback if faiss unavailable."""
+        # Skip faiss entirely on Python 3.13+ due to import hangs (DLL deadlocks)
+        import sys
+        if sys.version_info >= (3, 13):
+            logger.info("vector_store.numpy_fallback", reason="python_3.13_faiss_compat")
+            self._embeddings: list[np.ndarray] = []
+            return
+
         try:
             import faiss
             index_file = os.path.join(self._index_path, "faiss.index")
@@ -414,8 +421,8 @@ class VectorStore:
             else:
                 self._index = faiss.IndexFlatIP(self._dim)  # Inner product for cosine sim
                 logger.info("vector_store.created", dim=self._dim)
-        except ImportError:
-            logger.warning("vector_store.faiss_not_available, using numpy fallback")
+        except (ImportError, Exception) as e:
+            logger.warning("vector_store.faiss_not_available, using numpy fallback", error=str(e))
             self._embeddings: list[np.ndarray] = []
 
     def add(

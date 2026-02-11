@@ -95,6 +95,106 @@ export interface SuggestionsResponse {
   invested: number;
 }
 
+// ── Investment Plans ─────────────────────────────────
+
+export interface PLEstimate {
+  pct: number;
+  amount: number;
+  label: string;
+}
+
+export interface InvestmentPlanMarketData {
+  current_price: number;
+  open: number;
+  high: number;
+  low: number;
+  prev_close: number;
+  change: number;
+  change_pct: number;
+  day_range: string;
+}
+
+export interface InvestmentPlanAnalysis {
+  composite_score: number;
+  recommendation: string;
+  should_invest: boolean;
+  sentiment_score: number;
+  sentiment_label: string;
+  momentum: number;
+  risk_level: string;
+  data_source: string;
+  reasoning: string[];
+}
+
+export interface InvestmentPlanSizing {
+  estimated_shares: number;
+  estimated_investment: number;
+  max_invest_amount: number | null;
+  portfolio_allocation_pct: number;
+  auto_invest: boolean;
+}
+
+export interface InvestmentPlanNews {
+  title: string;
+  sentiment: string;
+  score: number;
+  source: string;
+  timestamp: string;
+}
+
+export interface AgentSignal {
+  agent: string;
+  type: string;
+  text: string;
+  confidence: number | null;
+  timestamp: string;
+}
+
+export interface ExistingPosition {
+  quantity: number;
+  avg_cost: number;
+  side: string;
+  current_value: number;
+  unrealized_pl: number;
+  unrealized_pl_pct: number;
+}
+
+export interface InvestmentPlan {
+  symbol: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  user_reason: string;
+  market_data: InvestmentPlanMarketData;
+  analysis: InvestmentPlanAnalysis;
+  investment_plan: InvestmentPlanSizing;
+  pl_estimates: {
+    bull_case: PLEstimate;
+    base_case: PLEstimate;
+    bear_case: PLEstimate;
+  };
+  news: InvestmentPlanNews[];
+  mention_count: number;
+  agent_signals: AgentSignal[];
+  existing_position: ExistingPosition | null;
+  already_invested: boolean;
+  invest_details: Record<string, unknown> | null;
+}
+
+export interface InvestmentPlansResponse {
+  plans: InvestmentPlan[];
+  total: number;
+  summary: {
+    total_planned_investment: number;
+    average_score: number;
+    buy_signals: number;
+    hold_signals: number;
+    available_cash: number;
+    remaining_daily_budget: number;
+  };
+  timestamp: string;
+}
+
 export interface DailyLimits {
   daily_invest_limit: number;
   daily_loss_limit: number;
@@ -225,6 +325,27 @@ export interface MarketOverview {
   timestamp: string;
 }
 
+// ── Data Sources ────────────────────────────────────────
+
+export interface DataSource {
+  id: string;
+  name: string;
+  type: string;
+  icon: string;
+  status: string;
+  configured: boolean;
+  base_url: string;
+  features: string[];
+  s3_endpoint?: string;
+  s3_bucket?: string;
+}
+
+export interface DataSourcesResponse {
+  sources: DataSource[];
+  summary: { total: number; configured: number; connected: number };
+  timestamp: string;
+}
+
 // ── Toast Notification ──────────────────────────────────
 
 export interface Toast {
@@ -233,6 +354,57 @@ export interface Toast {
   title: string;
   message?: string;
   duration?: number;  // ms, 0 = sticky
+}
+
+// ── Hardware Info ───────────────────────────────────────
+
+export interface HardwareInfo {
+  cpu: {
+    model: string;
+    architecture: string;
+    cores: number;
+    threads: number;
+    base_clock_ghz: number;
+    boost_clock_ghz: number;
+    current_freq_ghz: number;
+    usage_percent: number;
+  };
+  memory: {
+    total_gb: number;
+    available_gb: number;
+    used_gb: number;
+    usage_percent: number;
+    speed_mt: number;
+    type: string;
+  };
+  gpu: {
+    model: string;
+    vram_gb: number;
+    type: string;
+    cuda_available: boolean;
+    xpu_available: boolean;
+  };
+  npu: {
+    model: string;
+    enabled: boolean;
+  };
+  storage: {
+    model: string;
+    capacity_gb: number;
+    used_gb: number;
+    free_gb: number;
+    usage_percent: number;
+    interface: string;
+  };
+  compute: {
+    configured_device: string;
+    resolved_device: string;
+    pytorch_version: string;
+    python_version: string;
+    os: string;
+    max_workers: number;
+    shared_memory_mb: number;
+  };
 }
 
 export interface PortfolioState {
@@ -272,6 +444,9 @@ export interface NewsItem {
   symbols: string[];
   timestamp: string;
   url?: string;
+  summary?: string;
+  image_url?: string;
+  provider?: string;
 }
 
 export interface PnlDataPoint {
@@ -427,7 +602,7 @@ export interface ReportConfig {
 }
 
 export type SystemState = 'IDLE' | 'LIVE' | 'PAPER' | 'BACKTEST' | 'HALTED' | 'ERROR';
-export type Tab = 'dashboard' | 'portfolio' | 'trading' | 'agents' | 'models' | 'news' | 'reports' | 'brain' | 'analytics' | 'settings';
+export type Tab = 'dashboard' | 'portfolio' | 'trading' | 'agents' | 'models' | 'news' | 'reports' | 'brain' | 'analytics' | 'invest' | 'settings';
 
 export interface CitadelStore {
   // System
@@ -447,6 +622,7 @@ export interface CitadelStore {
   orders: OrdersResponse | null;
   watchlist: string[];
   suggestions: SuggestionsResponse | null;
+  investmentPlans: InvestmentPlansResponse | null;
   dailyLimits: DailyLimitsResponse | null;
   
   // Alerts
@@ -460,6 +636,12 @@ export interface CitadelStore {
   
   // Settings
   systemSettings: SystemSettings;
+  
+  // Hardware
+  hardwareInfo: HardwareInfo | null;
+  
+  // Data Sources
+  dataSources: DataSourcesResponse | null;
   
   // Market
   marketOverview: MarketOverview | null;
@@ -508,6 +690,8 @@ export interface CitadelStore {
   setNews: (news: NewsItem[]) => void;
   setRisk: (risk: RiskMetrics) => void;
   setCotStream: (cot: string[]) => void;
+  addCotEntry: (entry: string) => void;
+  fetchCot: () => Promise<void>;
   openStockDetail: (stock: StockDetail) => void;
   closeStockDetail: () => void;
   setModels: (models: ModelInfo[]) => void;
@@ -558,6 +742,10 @@ export interface CitadelStore {
   fetchSuggestions: () => Promise<void>;
   removeSuggestion: (symbol: string) => Promise<void>;
   refreshSuggestion: (symbol: string) => Promise<void>;
+  // Investment plans
+  fetchInvestmentPlans: () => Promise<void>;
+  executeInvestment: (symbol: string) => Promise<void>;
+  addInvestmentPlan: (symbol: string, reason: string, maxAmount: number | null, autoInvest: boolean) => Promise<void>;
   // Daily limits
   fetchDailyLimits: () => Promise<void>;
   updateDailyLimits: (limits: Partial<DailyLimits>) => Promise<void>;
@@ -573,6 +761,10 @@ export interface CitadelStore {
   // Settings
   fetchSettings: () => Promise<void>;
   updateSettings: (settings: Partial<SystemSettings>) => Promise<void>;
+  // Hardware
+  fetchHardware: () => Promise<void>;
+  // Data Sources
+  fetchDataSources: () => Promise<void>;
   // Market
   fetchMarketOverview: () => Promise<void>;
   // Toast
@@ -622,6 +814,7 @@ export const useStore = create<CitadelStore>((set, get) => ({
   orders: null,
   watchlist: [],
   suggestions: null,
+  investmentPlans: null,
   dailyLimits: null,
 
   alerts: null,
@@ -637,6 +830,8 @@ export const useStore = create<CitadelStore>((set, get) => ({
     timezone: 'UTC',
     currency: 'USD',
   },
+  hardwareInfo: null,
+  dataSources: null,
   marketOverview: null,
   toasts: [],
   commandPaletteOpen: false,
@@ -681,6 +876,16 @@ export const useStore = create<CitadelStore>((set, get) => ({
   setNews: (news) => set({ news }),
   setRisk: (risk) => set({ risk }),
   setCotStream: (cot) => set({ cotStream: cot }),
+  addCotEntry: (entry) => set((s) => ({ cotStream: [...s.cotStream, entry].slice(-500) })),
+  fetchCot: async () => {
+    try {
+      const data = await apiFetch<{ entries: { agent: string; type: string; text: string; confidence?: number; timestamp: string }[]; count: number }>('/brain/cot');
+      if (data && data.entries) {
+        const tokens = data.entries.map((e) => `[${e.agent}] ${e.type}: ${e.text}${e.confidence != null ? ` [conf:${e.confidence}]` : ''}`);
+        set({ cotStream: tokens });
+      }
+    } catch { /* ignore */ }
+  },
   openStockDetail: (stock) => set({ selectedStock: stock, stockDetailOpen: true }),
   closeStockDetail: () => set({ stockDetailOpen: false, selectedStock: null }),
   setModels: (models) => set({ models }),
@@ -960,6 +1165,38 @@ export const useStore = create<CitadelStore>((set, get) => ({
     } catch { /* offline */ }
   },
 
+  // ── Investment Plans ───────────────────────────────────────────────
+  fetchInvestmentPlans: async () => {
+    try {
+      const data = await apiFetch<InvestmentPlansResponse>('/invest/plans');
+      set({ investmentPlans: data });
+    } catch { /* offline */ }
+  },
+  executeInvestment: async (symbol) => {
+    try {
+      await apiFetch(`/invest/plans/${symbol}/execute`, { method: 'POST' });
+      get().fetchInvestmentPlans();
+      get().fetchSuggestions();
+      get().fetchDailyLimits();
+      get().fetchHoldings();
+    } catch { /* offline */ }
+  },
+  addInvestmentPlan: async (symbol, reason, maxAmount, autoInvest) => {
+    try {
+      await apiFetch('/invest/plans/add', {
+        method: 'POST',
+        body: JSON.stringify({
+          symbol,
+          reason,
+          max_invest_amount: maxAmount,
+          auto_invest: autoInvest,
+        }),
+      });
+      get().fetchInvestmentPlans();
+      get().fetchSuggestions();
+    } catch { /* offline */ }
+  },
+
   // ── Daily Limits ───────────────────────────────────────────────────
   fetchDailyLimits: async () => {
     try {
@@ -1038,6 +1275,22 @@ export const useStore = create<CitadelStore>((set, get) => ({
       });
       set({ systemSettings: data.settings });
       get().addToast({ type: 'success', title: 'Settings Saved' });
+    } catch { /* offline */ }
+  },
+
+  // ── Hardware ───────────────────────────────────────────────────────
+  fetchHardware: async () => {
+    try {
+      const data = await apiFetch<HardwareInfo>('/hardware');
+      set({ hardwareInfo: data });
+    } catch { /* offline */ }
+  },
+
+  // ── Data Sources ───────────────────────────────────────────────────
+  fetchDataSources: async () => {
+    try {
+      const data = await apiFetch<DataSourcesResponse>('/data-sources');
+      set({ dataSources: data });
     } catch { /* offline */ }
   },
 

@@ -4,6 +4,7 @@ import sys, os
 _DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_DIR)
 os.environ['PYTHONIOENCODING'] = 'utf-8'
+os.environ['PYTHONUNBUFFERED'] = '1'
 sys.path.insert(0, _DIR)
 sys.path.insert(0, os.path.join(_DIR, 'src'))
 
@@ -45,11 +46,12 @@ async def main():
 
     from data.storage import MarketDataStore, VectorStore
     data_store = MarketDataStore()
+    print("[OK] MarketDataStore initialized", flush=True)
     vector_store = VectorStore()
-    print("[OK] Data stores initialized")
+    print("[OK] Data stores initialized", flush=True)
 
     # Initialize market data feeds
-    from data.feeds import AlpacaFeed, PaperFeed, FeedManager
+    from data.feeds import AlpacaFeed, PaperFeed, PolygonFeed, FinnhubFeed, FeedManager
 
     feed_manager = FeedManager()
 
@@ -67,6 +69,20 @@ async def main():
         print("[OK] Alpaca feed registered (primary)")
     else:
         print("[WARN] No Alpaca credentials found — using paper feed only")
+
+    # Register Polygon/Massive feed if key present
+    polygon_key = os.environ.get("POLYGON_API_KEY", "")
+    if polygon_key:
+        polygon_feed = PolygonFeed(api_key=polygon_key)
+        feed_manager.register_feed(polygon_feed, primary=not use_alpaca)
+        print("[OK] Polygon/Massive feed registered")
+
+    # Register Finnhub feed if key present
+    finnhub_key = os.environ.get("FINNHUB_API_KEY", "")
+    if finnhub_key:
+        finnhub_feed = FinnhubFeed(api_key=finnhub_key)
+        feed_manager.register_feed(finnhub_feed)
+        print("[OK] Finnhub feed registered")
 
     # Always register paper feed as fallback
     paper_feed = PaperFeed()

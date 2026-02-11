@@ -1,6 +1,6 @@
 /**
  * CITADEL — Performance Analytics Page
- * Monthly returns heatmap, drawdown chart, win/loss streaks, advanced ratios.
+ * Real metrics from trade history. Shows empty state when no trades exist.
  */
 import { useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
@@ -252,6 +252,7 @@ export default function Analytics() {
   }
 
   const m = performance.metrics;
+  const hasTrades = m.total_trades > 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
@@ -259,7 +260,11 @@ export default function Analytics() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-citadel-text">📈 Performance Analytics</h1>
-          <p className="text-xs text-citadel-muted mt-1">Advanced metrics and portfolio analysis</p>
+          <p className="text-xs text-citadel-muted mt-1">
+            {hasTrades
+              ? `Real metrics from ${m.total_trades} trade${m.total_trades !== 1 ? 's' : ''}`
+              : 'No trades yet — metrics will populate as you trade'}
+          </p>
         </div>
         <button
           onClick={fetchPerformance}
@@ -269,73 +274,89 @@ export default function Analytics() {
         </button>
       </div>
 
+      {/* Empty state notice */}
+      {!hasTrades && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-citadel-card border border-citadel-border/50 rounded-xl p-8 text-center">
+          <span className="text-4xl block mb-3">📊</span>
+          <p className="text-citadel-muted text-sm">No trade history available yet.</p>
+          <p className="text-citadel-muted/60 text-xs mt-1">Execute trades via the Trading page to see real performance analytics here.</p>
+        </motion.div>
+      )}
+
       {/* KPI Row */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3"
       >
-        <MetricCard label="Sortino Ratio"   value={m.sortino_ratio}  color={m.sortino_ratio > 1 ? 'text-emerald-400' : 'text-red-400'} />
-        <MetricCard label="Calmar Ratio"    value={m.calmar_ratio}   color={m.calmar_ratio > 1 ? 'text-emerald-400' : 'text-red-400'} />
-        <MetricCard label="Profit Factor"   value={m.profit_factor}  color={m.profit_factor > 1 ? 'text-emerald-400' : 'text-red-400'} />
-        <MetricCard label="Win/Loss Ratio"  value={m.win_loss_ratio} color="text-citadel-accent" />
-        <MetricCard label="Best Month"      value={`+${m.best_month}`} suffix="%" color="text-emerald-400" small />
-        <MetricCard label="Worst Month"     value={m.worst_month}    suffix="%" color="text-red-400" small />
+        <MetricCard label="Sortino Ratio"   value={m.sortino_ratio}  color={m.sortino_ratio > 1 ? 'text-emerald-400' : m.sortino_ratio === 0 ? 'text-citadel-muted' : 'text-red-400'} />
+        <MetricCard label="Calmar Ratio"    value={m.calmar_ratio}   color={m.calmar_ratio > 1 ? 'text-emerald-400' : m.calmar_ratio === 0 ? 'text-citadel-muted' : 'text-red-400'} />
+        <MetricCard label="Profit Factor"   value={m.profit_factor}  color={m.profit_factor > 1 ? 'text-emerald-400' : m.profit_factor === 0 ? 'text-citadel-muted' : 'text-red-400'} />
+        <MetricCard label="Win/Loss Ratio"  value={m.win_loss_ratio} color={m.win_loss_ratio === 0 ? 'text-citadel-muted' : 'text-citadel-accent'} />
+        <MetricCard label="Best Month"      value={m.best_month === 0 ? '—' : `+${m.best_month}`} suffix={m.best_month === 0 ? '' : '%'} color={m.best_month === 0 ? 'text-citadel-muted' : 'text-emerald-400'} small />
+        <MetricCard label="Worst Month"     value={m.worst_month === 0 ? '—' : m.worst_month}    suffix={m.worst_month === 0 ? '' : '%'} color={m.worst_month === 0 ? 'text-citadel-muted' : 'text-red-400'} small />
       </motion.div>
 
       {/* Secondary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard label="Max Drawdown"     value={m.max_drawdown_pct}  suffix="%" color="text-red-400" small />
-        <MetricCard label="Recovery Factor"  value={m.recovery_factor}   color="text-citadel-accent" small />
-        <MetricCard label="Total Trades"     value={m.total_trades}      color="text-citadel-text" small />
-        <MetricCard label="Winning Months"   value={m.winning_months}    color="text-emerald-400" small />
-        <MetricCard label="Losing Months"    value={m.losing_months}     color="text-red-400" small />
+        <MetricCard label="Max Drawdown"     value={m.max_drawdown_pct === 0 ? '—' : m.max_drawdown_pct}  suffix={m.max_drawdown_pct === 0 ? '' : '%'} color={m.max_drawdown_pct === 0 ? 'text-citadel-muted' : 'text-red-400'} small />
+        <MetricCard label="Recovery Factor"  value={m.recovery_factor === 0 ? '—' : m.recovery_factor}   color={m.recovery_factor === 0 ? 'text-citadel-muted' : 'text-citadel-accent'} small />
+        <MetricCard label="Total Trades"     value={m.total_trades}      color={m.total_trades === 0 ? 'text-citadel-muted' : 'text-citadel-text'} small />
+        <MetricCard label="Winning Months"   value={m.winning_months}    color={m.winning_months === 0 ? 'text-citadel-muted' : 'text-emerald-400'} small />
+        <MetricCard label="Losing Months"    value={m.losing_months}     color={m.losing_months === 0 ? 'text-citadel-muted' : 'text-red-400'} small />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <MonthlyReturnsHeatmap />
-        <DrawdownChart />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EquityChart />
-        <StreaksChart />
-      </div>
-
-      {/* Win/Loss Distribution */}
-      <div className="bg-citadel-card rounded-2xl border border-citadel-border p-5">
-        <h3 className="text-sm font-semibold text-citadel-text mb-4">📊 Win/Loss Distribution</h3>
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <div className="flex gap-0.5 h-6 rounded-full overflow-hidden">
-              <div
-                className="bg-emerald-500 transition-all"
-                style={{ width: `${(m.winning_months / (m.winning_months + m.losing_months)) * 100}%` }}
-              />
-              <div
-                className="bg-red-500 transition-all"
-                style={{ width: `${(m.losing_months / (m.winning_months + m.losing_months)) * 100}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-2 text-xs">
-              <span className="text-emerald-400">{m.winning_months} wins ({((m.winning_months / (m.winning_months + m.losing_months)) * 100).toFixed(0)}%)</span>
-              <span className="text-red-400">{m.losing_months} losses ({((m.losing_months / (m.winning_months + m.losing_months)) * 100).toFixed(0)}%)</span>
-            </div>
+      {/* Charts — only shown when there's data */}
+      {hasTrades && (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <MonthlyReturnsHeatmap />
+            <DrawdownChart />
           </div>
 
-          <div className="flex gap-4 ml-4">
-            <div className="text-center">
-              <p className="text-sm font-bold text-emerald-400 font-mono">+{m.avg_win}%</p>
-              <p className="text-[10px] text-citadel-muted">Avg Win</p>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-red-400 font-mono">{m.avg_loss}%</p>
-              <p className="text-[10px] text-citadel-muted">Avg Loss</p>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <EquityChart />
+            <StreaksChart />
           </div>
-        </div>
-      </div>
+
+          {/* Win/Loss Distribution */}
+          {(m.winning_months + m.losing_months > 0) && (
+            <div className="bg-citadel-card rounded-2xl border border-citadel-border p-5">
+              <h3 className="text-sm font-semibold text-citadel-text mb-4">📊 Win/Loss Distribution</h3>
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="flex gap-0.5 h-6 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-500 transition-all"
+                      style={{ width: `${(m.winning_months / (m.winning_months + m.losing_months)) * 100}%` }}
+                    />
+                    <div
+                      className="bg-red-500 transition-all"
+                      style={{ width: `${(m.losing_months / (m.winning_months + m.losing_months)) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs">
+                    <span className="text-emerald-400">{m.winning_months} wins ({((m.winning_months / (m.winning_months + m.losing_months)) * 100).toFixed(0)}%)</span>
+                    <span className="text-red-400">{m.losing_months} losses ({((m.losing_months / (m.winning_months + m.losing_months)) * 100).toFixed(0)}%)</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 ml-4">
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-emerald-400 font-mono">+{m.avg_win}%</p>
+                    <p className="text-[10px] text-citadel-muted">Avg Win</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-red-400 font-mono">{m.avg_loss}%</p>
+                    <p className="text-[10px] text-citadel-muted">Avg Loss</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

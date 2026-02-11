@@ -624,6 +624,164 @@ class AlpacaFeed(BaseFeed):
                     await asyncio.sleep(5.0)  # Reconnect backoff
 
 
+class FinnhubFeed(BaseFeed):
+    """
+    Finnhub.io data feed — free tier supports:
+      - Stock quotes & candles
+      - Company news & general market news
+      - Basic financials, earnings, IPO calendar
+    Uses REST API with token auth.
+    Docs: https://finnhub.io/docs/api
+    """
+
+    def __init__(self, api_key: str = "", config: dict[str, Any] | None = None):
+        super().__init__("finnhub", config)
+        self._api_key = api_key or os.environ.get("FINNHUB_API_KEY", "")
+        self._client: httpx.AsyncClient | None = None
+        self._base_url = "https://finnhub.io/api/v1"
+
+    async def connect(self) -> None:
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            params={"token": self._api_key},
+        )
+        # Validate key with a simple quote request
+        try:
+            resp = await self._client.get(f"{self._base_url}/quote", params={"symbol": "AAPL", "token": self._api_key})
+            resp.raise_for_status()
+            self._connected = True
+            logger.info("feed.connected", feed=self.name)
+        except Exception as e:
+            logger.error("feed.connect_error", feed=self.name, error=str(e))
+            self._connected = True  # Still mark connected for failover
+
+    async def disconnect(self) -> None:
+        if self._client:
+            await self._client.aclose()
+        self._connected = False
+
+    async def get_quote(self, symbol: str) -> dict[str, Any]:
+        """Get real-time quote for a symbol."""
+        if not self._client:
+            await self.connect()
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}/quote",
+                params={"symbol": symbol, "token": self._api_key},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "symbol": symbol,
+                "price": data.get("c", 0),       # current
+                "change": data.get("d", 0),       # change
+                "change_pct": data.get("dp", 0),  # change percent
+                "high": data.get("h", 0),         # day high
+                "low": data.get("l", 0),          # day low
+                "open": data.get("o", 0),         # open
+                "prev_close": data.get("pc", 0),  # previous close
+                "timestamp": data.get("t", 0),    # Unix timestamp
+            }
+        except Exception as e:
+            logger.error("feed.quote_error", feed=self.name, symbol=symbol, error=str(e))
+            return {}
+
+    async def get_company_news(self, symbol: str, days: int = 7) -> list[dict[str, Any]]:
+        """Get recent company news."""
+        if not self._client:
+            await self.connect()
+        try:
+            now = datetime.now(timezone.utc)
+            from_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+            to_date = now.strftime("%Y-%m-%d")
+            resp = await self._client.get(
+                f"{self._base_url}/company-news",
+                params={"symbol": symbol, "from": from_date, "to": to_date, "token": self._api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()[:20]  # Limit to 20 articles
+        except Exception as e:
+            logger.error("feed.news_error", feed=self.name, symbol=symbol, error=str(e))
+            return []
+
+    async def get_market_news(self, category: str = "general") -> list[dict[str, Any]]:
+        """Get general market news."""
+        if not self._client:
+            await self.connect()
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}/news",
+                params={"category": category, "token": self._api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()[:30]
+        except Exception as e:
+            logger.error("feed.market_news_error", feed=self.name, error=str(e))
+            return []
+
+    async def get_historical_bars(
+        self,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[Bar]:
+        """Fetch candles from Finnhub. Supports 1, 5, 15, 30, 60, D, W, M resolutions."""
+        if not self._client:
+            await self.connect()
+        try:
+            res_map = {"1m": "1", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "1d": "D", "1w": "W"}
+            resolution = res_map.get(timeframe, "D")
+            resp = await self._client.get(
+                f"{self._base_url}/stock/candle",
+                params={
+                    "symbol": symbol,
+                    "resolution": resolution,
+                    "from": int(start.timestamp()),
+                    "to": int(end.timestamp()),
+                    "token": self._api_key,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("s") != "ok":
+                return []
+
+            bars = []
+            for i in range(len(data.get("t", []))):
+                bars.append(Bar(
+                    symbol=symbol,
+                    timestamp=datetime.fromtimestamp(data["t"][i], tz=timezone.utc),
+                    timeframe=timeframe,
+                    open=data["o"][i],
+                    high=data["h"][i],
+                    low=data["l"][i],
+                    close=data["c"][i],
+                    volume=data["v"][i],
+                ))
+            return bars
+        except Exception as e:
+            logger.error("feed.historical_error", feed=self.name, symbol=symbol, error=str(e))
+            return []
+
+    async def stream_ticks(self) -> AsyncIterator[Tick]:
+        """Finnhub free tier doesn't support real-time ticks; poll quotes instead."""
+        while self._connected:
+            for symbol in self._subscribed_symbols:
+                quote = await self.get_quote(symbol)
+                if quote and quote.get("price"):
+                    price = quote["price"]
+                    yield Tick(
+                        symbol=symbol,
+                        timestamp=datetime.now(timezone.utc),
+                        bid=price * 0.9999,
+                        ask=price * 1.0001,
+                        last=price,
+                        volume=0.0,
+                    )
+            await asyncio.sleep(2.0)  # Poll every 2s (Finnhub free limit: 60 calls/min)
+
+
 class FeedManager:
     """
     Manages multiple data feeds and provides unified access.

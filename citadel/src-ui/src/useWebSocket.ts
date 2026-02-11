@@ -9,8 +9,11 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore, type AgentStatus } from './store';
 
-const WS_BASE = `ws://${window.location.host}/ws`;
-const RECONNECT_DELAY = 3000;
+// In dev, Vite proxies /ws → ws://localhost:8000 via the proxy config.
+// Use the page origin so the Vite HMR proxy can intercept the upgrade request.
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_BASE = `${WS_PROTOCOL}//${window.location.host}/ws`;
+const RECONNECT_DELAY = 5000;
 
 export function useWebSocket() {
   const sockets = useRef<Record<string, WebSocket>>({});
@@ -20,7 +23,7 @@ export function useWebSocket() {
   const setConnected = useStore((s) => s.setConnected);
   const updatePortfolio = useStore((s) => s.updatePortfolio);
   const updateAgents = useStore((s) => s.updateAgents);
-  const setCotStream = useStore((s) => s.setCotStream);
+  const addCotEntry = useStore((s) => s.addCotEntry);
   const setSystemState = useStore((s) => s.setSystemState);
 
   const handleMessage = useCallback((channel: string, msg: Record<string, unknown>) => {
@@ -36,8 +39,10 @@ export function useWebSocket() {
         }
         break;
       case 'cot':
-        if (msg.type === 'cot_token' && typeof msg.token === 'string') {
-          setCotStream([msg.token]);
+        if (msg.type === 'cot_entry' && typeof msg.token === 'string') {
+          addCotEntry(msg.token);
+        } else if (msg.type === 'cot_token' && typeof msg.token === 'string') {
+          addCotEntry(msg.token);
         }
         break;
       case 'system':
@@ -46,7 +51,7 @@ export function useWebSocket() {
         }
         break;
     }
-  }, [updatePortfolio, updateAgents, setCotStream, setSystemState]);
+  }, [updatePortfolio, updateAgents, addCotEntry, setSystemState]);
 
   const connect = useCallback((channel: string) => {
     // Don't connect if component is unmounted (React Strict Mode cleanup)
@@ -64,7 +69,14 @@ export function useWebSocket() {
       return;
     }
 
-    const ws = new WebSocket(`${WS_BASE}/${channel}`);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(`${WS_BASE}/${channel}`);
+    } catch {
+      // WebSocket creation can throw if URL is invalid
+      reconnectTimers.current[channel] = setTimeout(() => connect(channel), RECONNECT_DELAY);
+      return;
+    }
 
     ws.onopen = () => {
       if (isMounted.current) {
@@ -88,9 +100,12 @@ export function useWebSocket() {
     };
 
     ws.onerror = () => {
+      // Suppress noisy console errors during dev — reconnect handles recovery
       if (isMounted.current) {
         setConnected(false);
       }
+      // Force close so onclose fires and triggers reconnect
+      try { ws.close(); } catch { /* ignore */ }
     };
 
     sockets.current[channel] = ws;
