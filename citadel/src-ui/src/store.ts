@@ -116,6 +116,65 @@ export interface ModelInfo {
   last_trained: string;
   parameters: number;
   checkpoint_path: string;
+  // Extended properties
+  version?: string;
+  architecture?: string;
+  hidden_size?: number;
+  num_layers?: number;
+  vocab_size?: number;
+  max_seq_length?: number;
+  model_size_bytes?: number;
+  model_size_display?: string;
+  framework?: string;
+  device?: string;
+  quantized?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface TrainingRun {
+  id: string;
+  model_name: string;
+  status: string; // running, completed, stopped, failed
+  epochs_total: number;
+  epochs_completed: number;
+  current_loss: number;
+  current_val_loss: number;
+  current_accuracy: number;
+  current_lr: number;
+  best_loss: number;
+  started_at: string;
+  finished_at?: string;
+  elapsed_s: number;
+  epoch_history: TrainingEpoch[];
+  config: {
+    epochs: number;
+    learning_rate: number;
+    batch_size: number;
+    rank: number;
+    data_source: string;
+    samples: number;
+  };
+  error?: string;
+}
+
+export interface AgentDetail {
+  name: string;
+  role: string;
+  description: string;
+  model: string;
+  version: string;
+  status: string;
+  uptime: number;
+  capabilities: string[];
+  config_keys: string[];
+  config_values: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  error_count: number;
+  last_heartbeat: number | null;
+  lessons?: Array<Record<string, unknown>>;
+  strategy_weights?: Record<string, number>;
+  training_history?: Array<Record<string, unknown>>;
+  analysis?: Record<string, unknown>;
 }
 
 export interface SavedReport {
@@ -185,6 +244,11 @@ export interface CitadelStore {
   // Model learning
   models: ModelInfo[];
 
+  // Training
+  activeTraining: TrainingRun | null;
+  trainingHistory: TrainingRun[];
+  agentDetails: Record<string, AgentDetail>;
+
   // Reports
   savedReports: SavedReport[];
   reportStats: ReportStats | null;
@@ -206,6 +270,9 @@ export interface CitadelStore {
   openStockDetail: (stock: StockDetail) => void;
   closeStockDetail: () => void;
   setModels: (models: ModelInfo[]) => void;
+  setActiveTraining: (t: TrainingRun | null) => void;
+  setTrainingHistory: (h: TrainingRun[]) => void;
+  setAgentDetails: (name: string, d: AgentDetail) => void;
   setSavedReports: (r: SavedReport[]) => void;
   setReportStats: (s: ReportStats) => void;
   setReportSchedules: (s: ReportSchedule[]) => void;
@@ -220,6 +287,11 @@ export interface CitadelStore {
   fetchRisk: () => Promise<void>;
   fetchStockDetail: (symbol: string) => Promise<void>;
   fetchModels: () => Promise<void>;
+  startTraining: (config: { model_name?: string; epochs?: number; learning_rate?: number; batch_size?: number; rank?: number; data_source?: string; samples?: number }) => Promise<void>;
+  stopTraining: () => Promise<void>;
+  fetchTrainingStatus: () => Promise<void>;
+  fetchTrainingHistory: () => Promise<void>;
+  fetchAgentDetails: (name: string) => Promise<void>;
   submitTrade: (symbol: string, action: string, sizePct: number) => Promise<void>;
   triggerReport: (type: string, email: boolean) => Promise<void>;
   fetchSavedReports: () => Promise<void>;
@@ -405,6 +477,10 @@ export const useStore = create<CitadelStore>((set, get) => ({
   stockDetailOpen: false,
   models: [],
 
+  activeTraining: null,
+  trainingHistory: [],
+  agentDetails: {},
+
   savedReports: [],
   reportStats: null,
   reportSchedules: [],
@@ -427,6 +503,9 @@ export const useStore = create<CitadelStore>((set, get) => ({
   openStockDetail: (stock) => set({ selectedStock: stock, stockDetailOpen: true }),
   closeStockDetail: () => set({ stockDetailOpen: false, selectedStock: null }),
   setModels: (models) => set({ models }),
+  setActiveTraining: (activeTraining) => set({ activeTraining }),
+  setTrainingHistory: (trainingHistory) => set({ trainingHistory }),
+  setAgentDetails: (name, detail) => set((s) => ({ agentDetails: { ...s.agentDetails, [name]: detail } })),
   setSavedReports: (savedReports) => set({ savedReports }),
   setReportStats: (reportStats) => set({ reportStats }),
   setReportSchedules: (reportSchedules) => set({ reportSchedules }),
@@ -485,6 +564,42 @@ export const useStore = create<CitadelStore>((set, get) => ({
     } catch {
       set({ models: generateDemoModels() });
     }
+  },
+  startTraining: async (config) => {
+    const data = await apiFetch<{ run_id: string }>('/models/train', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+    // Immediately poll for status
+    try {
+      const status = await apiFetch<TrainingRun>('/models/training/status');
+      if (status.id) set({ activeTraining: status });
+    } catch { /* will be polled */ }
+  },
+  stopTraining: async () => {
+    await apiFetch('/models/training/stop', { method: 'POST' });
+  },
+  fetchTrainingStatus: async () => {
+    try {
+      const data = await apiFetch<TrainingRun & { active: boolean }>('/models/training/status');
+      if (data.active) {
+        set({ activeTraining: data });
+      } else {
+        set({ activeTraining: null });
+      }
+    } catch { /* offline */ }
+  },
+  fetchTrainingHistory: async () => {
+    try {
+      const data = await apiFetch<TrainingRun[]>('/models/training/history');
+      set({ trainingHistory: data });
+    } catch { /* offline */ }
+  },
+  fetchAgentDetails: async (name) => {
+    try {
+      const data = await apiFetch<AgentDetail>(`/agents/${name}/details`);
+      set((s) => ({ agentDetails: { ...s.agentDetails, [name]: data } }));
+    } catch { /* offline */ }
   },
   submitTrade: async (symbol, action, sizePct) => {
     await apiFetch('/trade', {
