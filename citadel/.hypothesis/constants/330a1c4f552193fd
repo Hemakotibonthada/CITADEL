@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\engine\backtest.py
+# hypothesis_version: 6.151.5
+
+[0.0, 0.0001, 1.0, 2.0, 100000.0, 100, '  Running...', '--capital', '--config', '--end', '--start', '1d', '2024-01-01', '2025-12-31', 'Close', 'High', 'Low', 'Open', 'SPY', 'Volume', 'alpha', 'backtest.complete', 'backtest.start', 'beta', 'calmar_ratio', 'close', 'commission', 'elapsed_seconds', 'final_equity', 'high', 'initial_capital', 'low', 'max_drawdown_pct', 'open', 'profit_factor', 'sharpe_ratio', 'slippage_per_share', 'sortino_ratio', 'timestamp', 'total_return_pct', 'total_trades', 'volume', 'win_rate_pct']

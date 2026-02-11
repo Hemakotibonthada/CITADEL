@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\core\shm\ring_buffer.py
+# hypothesis_version: 6.151.5
+
+[4096, 65536, '=5q24x', 'available', 'capacity', 'citadel_portfolio', 'citadel_risk', 'citadel_signals', 'citadel_ticks', 'free_slots', 'is_full', 'overflow', 'portfolio', 'q', 'ring_buffer_slots', 'risk', 'risk_buffer_name', 'signal_buffer_name', 'signals', 'tick_buffer_name', 'ticks']

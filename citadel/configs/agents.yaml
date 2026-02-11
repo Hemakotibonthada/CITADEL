@@ -1,0 +1,111 @@
+# ============================================================
+#  CITADEL — Agent Configuration
+# ============================================================
+
+agents:
+  sentinel:
+    name: "Sentinel"
+    role: "Risk Guardian & System Supervisor"
+    priority: "critical"
+    process_priority: "high"
+    heartbeat_interval_ms: 250
+    max_latency_ms: 100
+    health_check_targets:
+      - "data_ingester"
+      - "tactician"
+      - "librarian"
+      - "broker_api"
+    escalation_chain:
+      - "log_warning"
+      - "alert_user"
+      - "kill_agent"
+      - "shutdown_system"
+
+  librarian:
+    name: "Librarian"
+    role: "Market Intelligence & News RAG"
+    priority: "normal"
+    embedding_model: "all-MiniLM-L6-v2"
+    embedding_dim: 384
+    vector_index: "faiss_flat"    # faiss_flat | faiss_ivf | duckdb
+    chunk_size: 512
+    chunk_overlap: 64
+    max_context_docs: 10
+    news_sources:
+      - provider: "newsapi"
+        categories: ["business", "technology"]
+        refresh_interval_s: 300
+      - provider: "finnhub"
+        categories: ["general", "company"]
+        refresh_interval_s: 600
+    sentiment_analysis:
+      model: "ProsusAI/finbert"
+      batch_size: 16
+      labels: ["positive", "negative", "neutral"]
+
+  tactician:
+    name: "Tactician"
+    role: "Trading Logic & Decision Engine"
+    priority: "high"
+    llm_config:
+      model_id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+      max_tokens: 4096
+      temperature: 0.3
+      top_p: 0.9
+      reasoning_tokens: 2048
+    chain_of_thought:
+      enabled: true
+      max_steps: 10
+      timeout_s: 30
+    decision_schema:
+      required_fields:
+        - "action"           # BUY | SELL | HOLD | CLOSE
+        - "symbol"
+        - "confidence"       # 0.0 - 1.0
+        - "size_pct"         # 0.0 - 100.0
+        - "rationale"
+        - "risk_assessment"
+      min_confidence: 0.7
+    reflection:
+      enabled: true
+      log_mental_state: true
+      review_interval_trades: 5
+
+  student:
+    name: "Student"
+    role: "Self-Correction & Model Refinement"
+    priority: "low"
+    schedule:
+      cron: "0 17 * * 1-5"       # 5 PM weekdays
+      timezone: "America/New_York"
+    analysis:
+      replay_window_days: 1
+      metrics:
+        - "sharpe_ratio"
+        - "win_rate"
+        - "avg_pnl"
+        - "max_drawdown"
+        - "alpha_vs_benchmark"
+      drift_detection:
+        method: "ks_test"         # ks_test | psi | wasserstein
+        threshold: 0.1
+    training:
+      method: "lora"
+      lora_rank: 8
+      lora_alpha: 16
+      learning_rate: 0.0001
+      epochs: 3
+      batch_size: 4
+      max_samples: 1000
+
+llm:
+  # ── Hardware Detection Order ───────────────────────────
+  device_priority:
+    - "intel_npu"
+    - "intel_gpu"
+    - "apple_metal"
+    - "cuda"
+    - "cpu"
+  quantization: "int4"
+  max_batch_size: 8
+  cache_size_gb: 2.0

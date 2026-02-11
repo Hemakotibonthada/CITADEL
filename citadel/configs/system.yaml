@@ -1,0 +1,72 @@
+# ============================================================
+#  CITADEL — Master Configuration
+#  All values can be overridden via environment variables.
+# ============================================================
+
+system:
+  name: "CITADEL"
+  version: "1.0.0"
+  environment: "paper"            # paper | live
+  timezone: "America/New_York"
+  data_dir: "./data"
+  log_dir: "./logs"
+  heartbeat_interval_ms: 500
+  max_workers: 4
+
+shared_memory:
+  enabled: true
+  total_size_mb: 256
+  ring_buffer_slots: 65536
+  tick_buffer_name: "citadel_ticks"
+  signal_buffer_name: "citadel_signals"
+  risk_buffer_name: "citadel_risk"
+  portfolio_buffer_name: "citadel_portfolio"
+
+database:
+  duckdb_path: "./data/citadel.duckdb"
+  vector_db_path: "./data/vectors"
+  event_log_path: "./data/events"
+  checkpoint_interval_s: 60
+
+broker:
+  provider: "alpaca"              # alpaca | interactive_brokers | paper
+  endpoint: "${BROKER_ENDPOINT}"
+  api_key: "${BROKER_API_KEY}"
+  api_secret: "${BROKER_API_SECRET}"
+  account_id: "${BROKER_ACCOUNT_ID}"
+  paper_trading: true
+  max_retries: 3
+  timeout_s: 10
+  rate_limit_per_min: 200
+
+data_feeds:
+  primary: "polygon"              # polygon | alpaca | yahoo
+  secondary: "yahoo"
+  tick_interval_ms: 100
+  bar_intervals: ["1m", "5m", "15m", "1h", "1d"]
+  symbols:
+    - "AAPL"
+    - "MSFT"
+    - "GOOGL"
+    - "AMZN"
+    - "NVDA"
+    - "TSLA"
+    - "META"
+    - "SPY"
+    - "QQQ"
+    - "IWM"
+  max_history_days: 365
+  cache_ttl_s: 300
+
+news:
+  providers:
+    - name: "newsapi"
+      api_key: "${NEWS_API_KEY}"
+      enabled: true
+    - name: "finnhub"
+      api_key: "${FINNHUB_API_KEY}"
+      enabled: true
+  fetch_interval_s: 300
+  max_articles_per_fetch: 50
+  sentiment_model: "finbert"
+  relevance_threshold: 0.6

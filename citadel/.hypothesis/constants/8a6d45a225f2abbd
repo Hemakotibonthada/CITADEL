@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\engine\verify.py
+# hypothesis_version: 6.151.5
+
+[-0.5, 0.0, 0.01, 0.05, 0.35, 0.5, 0.9, 0.95, 1.0, 2.0, 3.0, 5.0, 10.0, 100.0, 100000.0, 100, 252, 'BUY', 'L1_SOFT:sharpe_decay', 'cash_non_negative', 'cornish_fisher', 'daily_loss_limit', 'daily_loss_limit_pct', 'equity_consistency', 'fat_finger', 'historical', 'inf', 'invariant', 'leverage_limit', 'max_order_value_usd', 'no_negative_prices', 'order_size_sanity', 'parametric', 'position_consistency', 'price', 'price_deviation_pct', 'quantity', 'side', 'symbol', 'value']

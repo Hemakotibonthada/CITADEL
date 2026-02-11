@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\core\event_bus\bus.py
+# hypothesis_version: 6.151.5
+
+[b'\n', 0.0, 0.01, 0.1, 1000, 100000, 1000000, '*', './data/events', 'EventMetrics', 'Queue full', 'ab', 'avg_latency_ms', 'event_bus.started', 'event_bus.stopped', 'event_bus.subscribed', 'event_type = ?', 'json', 'max_latency_ms', 'source = ?', 'timestamp <= ?', 'timestamp >= ?', 'total_dropped', 'total_errors', 'total_processed', 'total_published']

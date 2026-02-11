@@ -1,0 +1,92 @@
+# ============================================================
+#  CITADEL — Risk Configuration ("Iron Dome")
+# ============================================================
+
+risk:
+  # ── Portfolio-Level Limits ──────────────────────────────
+  max_portfolio_leverage: 2.0
+  max_gross_exposure_pct: 200.0
+  max_net_exposure_pct: 100.0
+  max_single_position_pct: 10.0
+  max_sector_exposure_pct: 30.0
+  max_correlated_positions: 5
+  correlation_breach_threshold: 0.85
+
+  # ── P&L Limits ─────────────────────────────────────────
+  daily_loss_limit_pct: 3.0
+  weekly_loss_limit_pct: 7.0
+  monthly_loss_limit_pct: 12.0
+  max_drawdown_pct: 15.0
+  trailing_stop_pct: 2.0
+
+  # ── Fat Finger Protection ──────────────────────────────
+  fat_finger:
+    max_order_value_usd: 100000.0
+    max_order_qty_multiplier: 5.0
+    price_deviation_pct: 2.0
+    min_confirmation_delay_ms: 500
+
+  # ── Kill Switch Tiers ──────────────────────────────────
+  kill_switches:
+    L1_soft:
+      description: "Block new positions - Strategy drift detected"
+      triggers:
+        - type: "sharpe_decay"
+          threshold: -0.5
+          window_days: 5
+        - type: "win_rate_drop"
+          threshold: 0.35
+          window_trades: 20
+        - type: "volatility_spike"
+          threshold: 3.0        # 3x normal vol
+      actions:
+        - "block_new_opens"
+        - "alert_user"
+        - "log_event"
+
+    L2_hard:
+      description: "Liquidate sector - Correlation breach"
+      triggers:
+        - type: "sector_correlation"
+          threshold: 0.9
+        - type: "sector_loss_pct"
+          threshold: 5.0
+        - type: "api_latency_ms"
+          threshold: 5000
+      actions:
+        - "liquidate_sector"
+        - "block_sector"
+        - "alert_user_urgent"
+        - "log_event"
+
+    L3_nuclear:
+      description: "Full shutdown - Critical breach"
+      triggers:
+        - type: "daily_loss_breach"
+          threshold_pct: 3.0
+        - type: "api_error_rate"
+          threshold_pct: 50.0
+        - type: "heartbeat_failure"
+          timeout_ms: 5000
+      actions:
+        - "liquidate_all"
+        - "sever_api_connections"
+        - "lock_gui"
+        - "send_emergency_email"
+        - "log_critical_event"
+
+  # ── Position Sizing ────────────────────────────────────
+  position_sizing:
+    method: "kelly_fraction"      # fixed | pct_equity | kelly_fraction | volatility_target
+    kelly_fraction: 0.25          # Quarter-Kelly for safety
+    min_position_usd: 100.0
+    max_position_usd: 50000.0
+    volatility_target: 0.15       # 15% annualized
+    rebalance_threshold_pct: 5.0
+
+  # ── Monitoring ─────────────────────────────────────────
+  monitoring:
+    heartbeat_interval_ms: 500
+    health_check_interval_s: 10
+    metrics_export_interval_s: 30
+    alert_cooldown_s: 300

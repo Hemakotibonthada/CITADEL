@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node
+node_modules/
+citadel/src-ui/node_modules/
+
+# Build outputs
+citadel/src-ui/dist/
+
+# Models (large files)
+citadel/models/
+models/
+
+# Reports output
+reports/
+citadel/reports/*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# PyTorch
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Vite cache
+.vite/
+
+# Misc
+*.bak

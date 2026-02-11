@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\engine\costs.py
+# hypothesis_version: 6.151.5
+
+[0.0, 0.0001, 0.001, 0.0015, 0.002, 0.0035, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.35, 0.37, 1.0, 2.0, 50.0, 1000000.0, 365, 10000, 300000, 3000000, 20000000, '%Y-%m-%d', 'BUY', 'commission', 'cost_bps', 'effective_price', 'fifo', 'inf', 'lifo', 'long_term_gain', 'short_term_gain', 'slippage_per_share', 'tax_estimate', 'total_cost', 'total_gain', 'total_slippage']

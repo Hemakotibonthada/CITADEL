@@ -1,0 +1,4 @@
+# file: C:\Users\v-hbonthada\WorkSpace\stock\citadel\src\engine\strategies.py
+# hypothesis_version: 6.151.5
+
+[-3.5, -2.0, 0.0, 0.5, 0.8, 1.0, 2.0, 3.0, 5.0, 50.0, 100.0, 100, 500, 'QQQ', 'SPY', 'adx', 'adx_threshold', 'entry_z_score', 'exit_z_score', 'fast_period', 'lookback_periods', 'macd', 'max_history', 'mean_reversion', 'momentum', 'multi_factor', 'pairs', 'positions', 'rsi', 'rsi_overbought', 'rsi_oversold', 'rsi_period', 'signal_period', 'size_pct', 'slow_period', 'stat_arb', 'stop_loss_z_score', 'z_score_entry', 'z_score_exit']

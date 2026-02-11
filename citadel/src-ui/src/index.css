@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === CITADEL Base Styles === */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-citadel-bg text-citadel-text font-sans;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-citadel-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-citadel-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-citadel-accent/50;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-citadel-accent/30 text-citadel-text;
+  }
+}
+
+@layer components {
+  /* Glass card */
+  .glass-card {
+    @apply bg-citadel-surface/80 backdrop-blur-md border border-citadel-border rounded-xl;
+  }
+
+  /* Glow effect */
+  .glow {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1), 0 0 60px rgba(0, 212, 255, 0.05);
+  }
+
+  /* Accent gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-citadel-accent to-blue-400 bg-clip-text text-transparent;
+  }
+
+  /* Pulse ring animation */
+  .pulse-ring {
+    position: relative;
+  }
+  .pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 1px solid currentColor;
+    opacity: 0;
+    animation: pulseRing 2s ease-out infinite;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply bg-citadel-border/30 rounded animate-pulse;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar utility */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Extra small breakpoint */
+  @media (min-width: 480px) {
+    .xs\:block { display: block; }
+    .xs\:inline { display: inline; }
+    .xs\:flex { display: flex; }
+    .xs\:hidden { display: none; }
+    .xs\:text-sm { font-size: 0.875rem; }
+    .xs\:text-base { font-size: 1rem; }
+    .xs\:gap-2 { gap: 0.5rem; }
+    .xs\:p-3 { padding: 0.75rem; }
+    .xs\:px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+  }
+}
+
+/* === Animations === */
+@keyframes pulseRing {
+  0% { opacity: 0.4; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.3); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+/* Recharts tooltip override */
+.recharts-tooltip-wrapper {
+  z-index: 50 !important;
+}
+
+/* Responsive typography helpers */
+@media (max-width: 640px) {
+  .recharts-text {
+    font-size: 9px !important;
+  }
+  .recharts-legend-item-text {
+    font-size: 10px !important;
+  }
+}

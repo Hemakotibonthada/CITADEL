@@ -1,0 +1,1 @@
+"""CITADEL Core — Structured Logging"""

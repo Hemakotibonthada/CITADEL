@@ -1,0 +1,138 @@
+# ============================================================
+#  CITADEL — Report Configuration
+# ============================================================
+
+reports:
+  daily_report:
+    enabled: true
+    schedule:
+      cron: "0 17 30 * * 1-5"    # 5:30 PM weekdays
+      timezone: "America/New_York"
+    format: "pdf"
+    template: "templates/daily_report.html"
+    output_dir: "./reports"
+    
+    sections:
+      - id: "executive_summary"
+        title: "Executive Summary"
+        enabled: true
+        order: 1
+        
+      - id: "portfolio_overview"
+        title: "Current Portfolio"
+        enabled: true
+        order: 2
+        charts:
+          - type: "pie"
+            title: "Position Allocation"
+          - type: "bar"
+            title: "Position P&L"
+          - type: "treemap"
+            title: "Sector Exposure"
+            
+      - id: "todays_activity"
+        title: "Today's Trading Activity"
+        enabled: true
+        order: 3
+        charts:
+          - type: "timeline"
+            title: "Trade Timeline"
+          - type: "table"
+            title: "All Trades"
+            
+      - id: "pnl_analysis"
+        title: "Profit & Loss Analysis"
+        enabled: true
+        order: 4
+        charts:
+          - type: "waterfall"
+            title: "P&L Waterfall"
+          - type: "line"
+            title: "Cumulative P&L"
+          - type: "heatmap"
+            title: "P&L by Symbol & Hour"
+            
+      - id: "agent_learnings"
+        title: "What The Agent Learned Today"
+        enabled: true
+        order: 5
+        content:
+          - "model_confidence_changes"
+          - "strategy_adjustments"
+          - "drift_detection_results"
+          - "pattern_discoveries"
+          
+      - id: "risk_metrics"
+        title: "Risk Dashboard"
+        enabled: true
+        order: 6
+        charts:
+          - type: "gauge"
+            title: "Portfolio Risk Score"
+          - type: "line"
+            title: "VaR Over Time"
+          - type: "bar"
+            title: "Exposure by Sector"
+            
+      - id: "market_news"
+        title: "Top Market News Today"
+        enabled: true
+        order: 7
+        max_articles: 10
+        include_sentiment: true
+        
+      - id: "performance_metrics"
+        title: "Performance Metrics"
+        enabled: true
+        order: 8
+        metrics:
+          - "sharpe_ratio"
+          - "sortino_ratio"
+          - "calmar_ratio"
+          - "win_rate"
+          - "profit_factor"
+          - "max_drawdown"
+          - "beta"
+          - "alpha"
+          
+      - id: "strategy_breakdown"
+        title: "Strategy Performance Breakdown"
+        enabled: true
+        order: 9
+        charts:
+          - type: "grouped_bar"
+            title: "P&L by Strategy"
+          - type: "table"
+            title: "Strategy Metrics"
+            
+      - id: "outlook"
+        title: "Tomorrow's Outlook"
+        enabled: true
+        order: 10
+        content:
+          - "scheduled_events"
+          - "earnings_calendar"
+          - "agent_recommendations"
+
+    styling:
+      primary_color: "#1a1a2e"
+      accent_color: "#e94560"
+      success_color: "#0f9b58"
+      danger_color: "#db4437"
+      warning_color: "#f4b400"
+      font_family: "Inter, sans-serif"
+      logo_path: "assets/citadel_logo.png"
+      
+  email:
+    enabled: true
+    smtp:
+      host: "${SMTP_HOST}"
+      port: 587
+      username: "${SMTP_USER}"
+      password: "${SMTP_PASSWORD}"
+      use_tls: true
+    from_address: "${SMTP_USER}"
+    to_addresses:
+      - "${REPORT_RECIPIENT}"
+    subject_template: "CITADEL Daily Report — {date}"
+    attach_pdf: true
