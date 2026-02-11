@@ -143,6 +143,7 @@ export function Agents() {
             name={inspectAgent}
             detail={agentDetails[inspectAgent] || null}
             onClose={() => setInspectAgent(null)}
+            onRetry={fetchAgentDetails}
           />
         )}
       </AnimatePresence>
@@ -267,7 +268,7 @@ function AgentCard({ name, data, onInspect }: { name: string; data: AgentStatus 
 
 // ── Agent Detail Modal ────────────────────────────────────
 
-function AgentDetailModal({ name, detail, onClose }: { name: string; detail: AgentDetail | null; onClose: () => void }) {
+function AgentDetailModal({ name, detail, onClose, onRetry }: { name: string; detail: AgentDetail | null; onClose: () => void; onRetry: (name: string) => void }) {
   const info = AGENT_INFO[name] || { role: 'Agent', icon: '🤖', color: '', gradient: '', desc: '', model: 'Unknown' };
 
   return (
@@ -297,6 +298,7 @@ function AgentDetailModal({ name, detail, onClose }: { name: string; detail: Age
           <div className="text-center py-10 text-citadel-muted">
             <div className="inline-block w-6 h-6 border-2 border-citadel-accent/30 border-t-citadel-accent rounded-full animate-spin mb-3" />
             <div className="text-sm">Loading agent details...</div>
+            <button onClick={() => onRetry(name)} className="mt-3 text-xs text-citadel-accent hover:underline">Retry</button>
           </div>
         ) : (
           <div className="space-y-5">

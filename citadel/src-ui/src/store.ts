@@ -601,7 +601,25 @@ export const useStore = create<CitadelStore>((set, get) => ({
     try {
       const data = await apiFetch<AgentDetail>(`/agents/${name}/details`);
       set((s) => ({ agentDetails: { ...s.agentDetails, [name]: data } }));
-    } catch { /* offline */ }
+    } catch {
+      // Provide fallback details so the modal isn't stuck on loading
+      const fallback: AgentDetail = {
+        name,
+        role: 'Agent',
+        description: 'Agent details could not be loaded from the server.',
+        model: 'Unknown',
+        version: '2.0.0',
+        status: 'IDLE',
+        uptime: 0,
+        capabilities: [],
+        config_keys: [],
+        config_values: {},
+        metrics: {},
+        error_count: 0,
+        last_heartbeat: null,
+      };
+      set((s) => ({ agentDetails: { ...s.agentDetails, [name]: fallback } }));
+    }
   },
   submitTrade: async (symbol, action, sizePct) => {
     await apiFetch('/trade', {
