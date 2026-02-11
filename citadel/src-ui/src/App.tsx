@@ -8,6 +8,8 @@ import { useStore } from './store';
 import { useWebSocket } from './useWebSocket';
 import Header from './components/Header';
 import { StockDetailModal } from './components/StockDetailModal';
+import ToastContainer from './components/Toast';
+import CommandPalette from './components/CommandPalette';
 import { Dashboard } from './pages/Dashboard';
 import { Portfolio } from './pages/Portfolio';
 import { Agents } from './pages/Agents';
@@ -16,6 +18,8 @@ import Brain from './pages/Brain';
 import NewsPage from './pages/NewsPage';
 import Reports from './pages/Reports';
 import Trading from './pages/Trading';
+import Analytics from './pages/Analytics';
+import Settings from './pages/Settings';
 
 const PAGE_MAP: Record<string, React.FC> = {
   dashboard: Dashboard,
@@ -26,6 +30,8 @@ const PAGE_MAP: Record<string, React.FC> = {
   brain: Brain,
   news: NewsPage,
   reports: Reports,
+  analytics: Analytics,
+  settings: Settings,
 };
 
 export default function App() {
@@ -63,6 +69,12 @@ export default function App() {
 
       {/* Stock Detail Modal Overlay */}
       <StockDetailModal />
+
+      {/* Global Toast Notifications */}
+      <ToastContainer />
+
+      {/* Command Palette (Ctrl+K) */}
+      <CommandPalette />
 
       {/* Footer status bar */}
       <footer className="border-t border-citadel-border bg-citadel-bg/80 backdrop-blur-sm px-4 py-1.5 flex items-center justify-between text-[9px] sm:text-[10px] text-citadel-muted font-mono">

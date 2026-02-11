@@ -15,6 +15,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'brain',     label: 'Brain',     icon: '⚡' },
   { id: 'news',      label: 'News',      icon: '📰' },
   { id: 'reports',   label: 'Reports',   icon: '📋' },
+  { id: 'analytics', label: 'Analytics', icon: '📈' },
+  { id: 'settings',  label: 'Settings',  icon: '⚙️' },
 ];
 
 const STATE_COLORS: Record<string, string> = {
@@ -27,7 +29,10 @@ export default function Header() {
   const setActiveTab = useStore((s) => s.setTab);
   const systemState = useStore((s) => s.systemState);
   const wsConnected = useStore((s) => s.connected);
+  const setCommandPaletteOpen = useStore((s) => s.setCommandPaletteOpen);
+  const alerts = useStore((s) => s.alerts);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const activeAlertCount = alerts?.active ?? 0;
 
   return (
     <header className="sticky top-0 z-40 bg-citadel-bg/90 backdrop-blur-md border-b border-citadel-border">
@@ -71,6 +76,31 @@ export default function Header() {
 
           {/* Status indicators + hamburger */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Command Palette trigger */}
+            <button
+              onClick={() => setCommandPaletteOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-citadel-border bg-citadel-surface/50 hover:border-citadel-accent/30 transition-colors group"
+              title="Command Palette (Ctrl+K)"
+            >
+              <span className="text-xs text-citadel-muted group-hover:text-citadel-accent">🔍</span>
+              <span className="text-[10px] text-citadel-muted hidden lg:inline">Search</span>
+              <kbd className="text-[9px] text-citadel-muted bg-citadel-bg px-1 py-0.5 rounded border border-citadel-border font-mono ml-1">⌘K</kbd>
+            </button>
+
+            {/* Alert bell */}
+            <button
+              onClick={() => setActiveTab('trading' as Tab)}
+              className="relative p-1.5 rounded-lg hover:bg-citadel-surface transition-colors"
+              title={`${activeAlertCount} active alerts`}
+            >
+              <span className="text-sm">🔔</span>
+              {activeAlertCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-citadel-accent rounded-full text-[8px] font-bold text-white flex items-center justify-center">
+                  {activeAlertCount}
+                </span>
+              )}
+            </button>
+
             {/* System state */}
             <div className="flex items-center gap-1.5">
               <div className={`w-2 h-2 rounded-full ${STATE_COLORS[systemState] || 'bg-gray-500'} ${systemState === 'LIVE' ? 'animate-pulse' : ''}`} />

@@ -2,13 +2,14 @@
  * CITADEL — Dashboard Page
  * Responsive overview: equity curve, P&L waterfall, position grid, risk, agents, sectors.
  */
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie,
   ComposedChart, Line,
 } from 'recharts';
-import { useStore } from '../store';
+import { useStore, type MarketOverview, type ActivityEvent } from '../store';
 
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtK = (n: number) => Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : n.toFixed(0);
@@ -199,8 +200,71 @@ function SectorAllocation() {
   );
 }
 
+function MarketOverviewBar({ overview, onRefresh }: { overview: MarketOverview | null; onRefresh: () => void }) {
+  useEffect(() => { onRefresh(); }, [onRefresh]);
+  if (!overview) return null;
+  return (
+    <div className="bg-citadel-card border border-citadel-border rounded-xl px-3 py-2 flex items-center gap-4 overflow-x-auto no-scrollbar">
+      <span className="text-xs text-citadel-muted flex-shrink-0 font-semibold">🌍 Markets</span>
+      {overview.indices.map(idx => (
+        <div key={idx.symbol} className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-xs text-citadel-muted font-mono">{idx.symbol}</span>
+          <span className="text-xs text-citadel-text font-mono">${idx.price.toFixed(2)}</span>
+          <span className={`text-[10px] font-mono font-semibold ${idx.change_pct >= 0 ? 'text-citadel-success' : 'text-citadel-danger'}`}>
+            {idx.change_pct >= 0 ? '+' : ''}{idx.change_pct.toFixed(2)}%
+          </span>
+        </div>
+      ))}
+      <div className="ml-auto flex-shrink-0 border-l border-citadel-border pl-3 flex items-center gap-2">
+        {overview.sectors.slice(0, 3).map(sec => (
+          <div key={sec.name} className="flex items-center gap-1">
+            <span className="text-[10px] text-citadel-muted">{sec.name}</span>
+            <span className={`text-[10px] font-mono ${sec.change_pct >= 0 ? 'text-citadel-success' : 'text-citadel-danger'}`}>
+              {sec.change_pct >= 0 ? '+' : ''}{sec.change_pct.toFixed(2)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const EVENT_ICONS: Record<string, string> = {
+  trade: '💹', alert_created: '🔔', alert_deleted: '🔕', settings_updated: '⚙️',
+  order_placed: '📝', order_cancelled: '❌', position_added: '➕', position_removed: '➖',
+};
+
+function ActivityFeed({ events, onRefresh }: { events: ActivityEvent[]; onRefresh: (limit?: number) => void }) {
+  useEffect(() => { onRefresh(10); }, [onRefresh]);
+  if (events.length === 0) return null;
+  return (
+    <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs sm:text-sm font-medium text-citadel-muted">Recent Activity</h3>
+        <button onClick={() => onRefresh(20)} className="text-[10px] text-citadel-muted hover:text-citadel-accent transition-colors">Show More</button>
+      </div>
+      <div className="space-y-2 max-h-48 overflow-y-auto no-scrollbar">
+        {events.map(evt => (
+          <div key={evt.id} className="flex items-start gap-2 text-xs">
+            <span className="text-sm flex-shrink-0">{EVENT_ICONS[evt.type] || '📌'}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-citadel-text truncate">{evt.message}</p>
+              <p className="text-[10px] text-citadel-muted font-mono">{new Date(evt.timestamp).toLocaleTimeString()}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Dashboard() {
   const p = useStore((s) => s.portfolio);
+  const fetchMarketOverview = useStore((s) => s.fetchMarketOverview);
+  const fetchActivity = useStore((s) => s.fetchActivity);
+  const marketOverview = useStore((s) => s.marketOverview);
+  const activityLog = useStore((s) => s.activityLog);
+
   const pc = p.daily_pnl >= 0 ? 'text-citadel-success' : 'text-citadel-danger';
   const tc = p.total_pnl >= 0 ? 'text-citadel-success' : 'text-citadel-danger';
   return (
@@ -212,9 +276,16 @@ export function Dashboard() {
         <StatCard icon="📈" label="Total P&L" value={`${s(p.total_pnl)}$${fmt(Math.abs(p.total_pnl))}`} color={tc}/>
         <StatCard icon="⚡" label="Leverage" value={`${p.leverage.toFixed(2)}x`} color={p.leverage>1.5?'text-citadel-danger':undefined}/>
       </div>
+
+      {/* Market Overview Ticker */}
+      <MarketOverviewBar overview={marketOverview} onRefresh={fetchMarketOverview}/>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4"><EquityCurve/><PnlWaterfall/></div>
       <PositionGrid/>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"><AgentCards/><RiskGauges/><SectorAllocation/></div>
+
+      {/* Activity Feed */}
+      <ActivityFeed events={activityLog} onRefresh={fetchActivity}/>
     </div>
   );
 }

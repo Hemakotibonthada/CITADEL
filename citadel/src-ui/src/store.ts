@@ -116,6 +116,125 @@ export interface DailyLimitsResponse {
   remaining_loss_budget: number;
 }
 
+// ── Alert System ────────────────────────────────────────
+
+export interface Alert {
+  id: string;
+  symbol: string;
+  alert_type: string;  // price, pnl_threshold, volume_spike
+  condition: string;   // above, below, crosses
+  value: number;
+  enabled: boolean;
+  note: string;
+  triggered: boolean;
+  triggered_at: string | null;
+  created_at: string;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
+  total: number;
+  active: number;
+}
+
+// ── Activity Log ────────────────────────────────────────
+
+export interface ActivityEvent {
+  id: string;
+  type: string;
+  message: string;
+  data: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+// ── Performance Analytics ───────────────────────────────
+
+export interface MonthlyReturn {
+  year: number;
+  month: number;
+  return_pct: number;
+}
+
+export interface DrawdownPoint {
+  date: string;
+  drawdown_pct: number;
+  equity: number;
+}
+
+export interface Streak {
+  type: string;    // win or loss
+  length: number;
+  pnl: number;
+}
+
+export interface PerformanceMetrics {
+  sortino_ratio: number;
+  calmar_ratio: number;
+  profit_factor: number;
+  avg_win: number;
+  avg_loss: number;
+  win_loss_ratio: number;
+  best_month: number;
+  worst_month: number;
+  max_drawdown_pct: number;
+  recovery_factor: number;
+  total_trades: number;
+  winning_months: number;
+  losing_months: number;
+}
+
+export interface PerformanceData {
+  monthly_returns: MonthlyReturn[];
+  drawdown_series: DrawdownPoint[];
+  streaks: Streak[];
+  metrics: PerformanceMetrics;
+}
+
+// ── System Settings ─────────────────────────────────────
+
+export interface SystemSettings {
+  theme: string;
+  notification_sound: boolean;
+  auto_refresh_interval: number;
+  default_order_size_pct: number;
+  show_pnl_in_header: boolean;
+  compact_mode: boolean;
+  timezone: string;
+  currency: string;
+}
+
+// ── Market Overview ─────────────────────────────────────
+
+export interface MarketIndex {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  change_pct: number;
+}
+
+export interface SectorPerformance {
+  name: string;
+  change_pct: number;
+}
+
+export interface MarketOverview {
+  indices: MarketIndex[];
+  sectors: SectorPerformance[];
+  market_status: string;
+  timestamp: string;
+}
+
+// ── Toast Notification ──────────────────────────────────
+
+export interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message?: string;
+  duration?: number;  // ms, 0 = sticky
+}
+
 export interface PortfolioState {
   total_equity: number;
   cash: number;
@@ -308,7 +427,7 @@ export interface ReportConfig {
 }
 
 export type SystemState = 'IDLE' | 'LIVE' | 'PAPER' | 'BACKTEST' | 'HALTED' | 'ERROR';
-export type Tab = 'dashboard' | 'portfolio' | 'trading' | 'agents' | 'models' | 'news' | 'reports' | 'brain';
+export type Tab = 'dashboard' | 'portfolio' | 'trading' | 'agents' | 'models' | 'news' | 'reports' | 'brain' | 'analytics' | 'settings';
 
 export interface CitadelStore {
   // System
@@ -329,6 +448,27 @@ export interface CitadelStore {
   watchlist: string[];
   suggestions: SuggestionsResponse | null;
   dailyLimits: DailyLimitsResponse | null;
+  
+  // Alerts
+  alerts: AlertsResponse | null;
+  
+  // Activity
+  activityLog: ActivityEvent[];
+  
+  // Performance
+  performance: PerformanceData | null;
+  
+  // Settings
+  systemSettings: SystemSettings;
+  
+  // Market
+  marketOverview: MarketOverview | null;
+  
+  // Toast notifications
+  toasts: Toast[];
+  
+  // Command palette
+  commandPaletteOpen: boolean;
   
   // Agents
   agents: Record<string, AgentStatus>;
@@ -421,6 +561,25 @@ export interface CitadelStore {
   // Daily limits
   fetchDailyLimits: () => Promise<void>;
   updateDailyLimits: (limits: Partial<DailyLimits>) => Promise<void>;
+  // Alerts
+  fetchAlerts: () => Promise<void>;
+  createAlert: (symbol: string, alertType: string, condition: string, value: number, note?: string) => Promise<void>;
+  deleteAlert: (alertId: string) => Promise<void>;
+  toggleAlert: (alertId: string) => Promise<void>;
+  // Activity
+  fetchActivity: (limit?: number) => Promise<void>;
+  // Performance
+  fetchPerformance: () => Promise<void>;
+  // Settings
+  fetchSettings: () => Promise<void>;
+  updateSettings: (settings: Partial<SystemSettings>) => Promise<void>;
+  // Market
+  fetchMarketOverview: () => Promise<void>;
+  // Toast
+  addToast: (toast: Omit<Toast, 'id'>) => void;
+  removeToast: (id: string) => void;
+  // Command palette
+  setCommandPaletteOpen: (open: boolean) => void;
 }
 
 const API_BASE = '/api';
@@ -464,6 +623,23 @@ export const useStore = create<CitadelStore>((set, get) => ({
   watchlist: [],
   suggestions: null,
   dailyLimits: null,
+
+  alerts: null,
+  activityLog: [],
+  performance: null,
+  systemSettings: {
+    theme: 'dark',
+    notification_sound: true,
+    auto_refresh_interval: 5,
+    default_order_size_pct: 5.0,
+    show_pnl_in_header: true,
+    compact_mode: false,
+    timezone: 'UTC',
+    currency: 'USD',
+  },
+  marketOverview: null,
+  toasts: [],
+  commandPaletteOpen: false,
 
   agents: {},
   cotStream: [],
@@ -800,4 +976,91 @@ export const useStore = create<CitadelStore>((set, get) => ({
       set({ dailyLimits: data });
     } catch { /* offline */ }
   },
+
+  // ── Alerts ─────────────────────────────────────────────────────────
+  fetchAlerts: async () => {
+    try {
+      const data = await apiFetch<AlertsResponse>('/alerts');
+      set({ alerts: data });
+    } catch { /* offline */ }
+  },
+  createAlert: async (symbol, alertType, condition, value, note = '') => {
+    try {
+      await apiFetch('/alerts', {
+        method: 'POST',
+        body: JSON.stringify({ symbol, alert_type: alertType, condition, value, note }),
+      });
+      get().fetchAlerts();
+      get().addToast({ type: 'success', title: 'Alert Created', message: `Alert set for ${symbol}` });
+    } catch { /* offline */ }
+  },
+  deleteAlert: async (alertId) => {
+    try {
+      await apiFetch(`/alerts/${alertId}`, { method: 'DELETE' });
+      get().fetchAlerts();
+    } catch { /* offline */ }
+  },
+  toggleAlert: async (alertId) => {
+    try {
+      await apiFetch(`/alerts/${alertId}/toggle`, { method: 'PUT' });
+      get().fetchAlerts();
+    } catch { /* offline */ }
+  },
+
+  // ── Activity ───────────────────────────────────────────────────────
+  fetchActivity: async (limit = 50) => {
+    try {
+      const data = await apiFetch<{ events: ActivityEvent[] }>(`/activity?limit=${limit}`);
+      set({ activityLog: data.events });
+    } catch { /* offline */ }
+  },
+
+  // ── Performance ────────────────────────────────────────────────────
+  fetchPerformance: async () => {
+    try {
+      const data = await apiFetch<PerformanceData>('/performance');
+      set({ performance: data });
+    } catch { /* offline */ }
+  },
+
+  // ── Settings ───────────────────────────────────────────────────────
+  fetchSettings: async () => {
+    try {
+      const data = await apiFetch<{ settings: SystemSettings }>('/settings');
+      set({ systemSettings: data.settings });
+    } catch { /* offline */ }
+  },
+  updateSettings: async (settings) => {
+    try {
+      const data = await apiFetch<{ settings: SystemSettings }>('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+      set({ systemSettings: data.settings });
+      get().addToast({ type: 'success', title: 'Settings Saved' });
+    } catch { /* offline */ }
+  },
+
+  // ── Market Overview ────────────────────────────────────────────────
+  fetchMarketOverview: async () => {
+    try {
+      const data = await apiFetch<MarketOverview>('/market/overview');
+      set({ marketOverview: data });
+    } catch { /* offline */ }
+  },
+
+  // ── Toast Notifications ────────────────────────────────────────────
+  addToast: (toast) => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
+    // Auto-remove after duration (default 4s)
+    const dur = toast.duration ?? 4000;
+    if (dur > 0) setTimeout(() => get().removeToast(id), dur);
+  },
+  removeToast: (id) => {
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
+
+  // ── Command Palette ────────────────────────────────────────────────
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 }));
