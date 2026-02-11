@@ -181,7 +181,9 @@ export interface SavedReport {
   filename: string;
   path: string;
   type: string;
+  trigger: string;
   date: string;
+  time: string;
   size_bytes: number;
   size_display: string;
   created_at: string;
@@ -293,7 +295,7 @@ export interface CitadelStore {
   fetchTrainingHistory: () => Promise<void>;
   fetchAgentDetails: (name: string) => Promise<void>;
   submitTrade: (symbol: string, action: string, sizePct: number) => Promise<void>;
-  triggerReport: (type: string, email: boolean) => Promise<void>;
+  triggerReport: (type: string, email: boolean, trigger?: string) => Promise<void>;
   fetchSavedReports: () => Promise<void>;
   fetchReportStats: () => Promise<void>;
   fetchReportSchedules: () => Promise<void>;
@@ -607,10 +609,10 @@ export const useStore = create<CitadelStore>((set, get) => ({
       body: JSON.stringify({ symbol, action, size_pct: sizePct }),
     });
   },
-  triggerReport: async (type, email) => {
+  triggerReport: async (type, email, trigger = 'manual') => {
     await apiFetch('/report', {
       method: 'POST',
-      body: JSON.stringify({ report_type: type, email }),
+      body: JSON.stringify({ report_type: type, email, trigger }),
     });
   },
   fetchSavedReports: async () => {

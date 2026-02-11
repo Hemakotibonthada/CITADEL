@@ -29,6 +29,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
+# Absolute path to reports directory (resolved from project root)
+_CITADEL_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPORTS_DIR = _CITADEL_ROOT / "reports"
+
 logger = structlog.get_logger(__name__)
 
 
@@ -73,6 +77,7 @@ class ReportRequest(BaseModel):
     report_type: str = "daily"
     date: str | None = None
     email: bool = False
+    trigger: str = "manual"               # "manual" or "auto"
     sections: list[str] | None = None     # optional section filter
     date_range_start: str | None = None   # for custom range reports
     date_range_end: str | None = None
@@ -403,6 +408,7 @@ def create_app() -> FastAPI:
                     config=(_state.get("config") or {}).get("reports", {}) if isinstance(_state.get("config"), dict) else {},
                     data_store=_state.get("data_store"),
                     agents=_state.get("agents", {}),
+                    output_dir=str(_REPORTS_DIR),
                 )
                 _state["report_gen"] = gen
                 logger.info("report_gen.lazy_initialized")
@@ -415,8 +421,9 @@ def create_app() -> FastAPI:
                 report_type=request.report_type,
                 date=request.date,
                 send_email=request.email,
+                trigger=request.trigger,
             )
-            return {"path": str(path), "status": "generated"}
+            return {"path": str(path), "status": "generated", "filename": Path(path).name}
         except Exception as e:
             logger.error("report.generation_failed", error=str(e))
             raise HTTPException(500, str(e))
@@ -427,23 +434,42 @@ def create_app() -> FastAPI:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """List all generated PDF reports with metadata."""
-        reports_dir = Path("reports")
-        if not reports_dir.exists():
+        _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        if not _REPORTS_DIR.exists():
             return []
 
         files: list[dict[str, Any]] = []
-        for f in sorted(reports_dir.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for f in sorted(_REPORTS_DIR.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
             stat = f.stat()
             name_parts = f.stem.split("_")
-            rtype = name_parts[1] if len(name_parts) > 1 else "unknown"
-            rdate = name_parts[2] if len(name_parts) > 2 else ""
+            # Support both old format: citadel_{type}_{date}
+            # and new format: citadel_{trigger}_{type}_{date}_{time}
+            if len(name_parts) >= 5:
+                # New format: citadel_manual_daily_2026-02-11_163045
+                trigger = name_parts[1]
+                rtype = name_parts[2]
+                rdate = name_parts[3]
+                rtime = name_parts[4] if len(name_parts) > 4 else ""
+            elif len(name_parts) >= 3:
+                # Old format: citadel_daily_2026-02-11
+                trigger = "manual"
+                rtype = name_parts[1]
+                rdate = name_parts[2]
+                rtime = ""
+            else:
+                trigger = "unknown"
+                rtype = "unknown"
+                rdate = ""
+                rtime = ""
             if report_type and rtype != report_type:
                 continue
             files.append({
                 "filename": f.name,
                 "path": str(f),
                 "type": rtype,
+                "trigger": trigger,
                 "date": rdate,
+                "time": rtime,
                 "size_bytes": stat.st_size,
                 "size_display": f"{stat.st_size / 1024:.1f} KB",
                 "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
@@ -456,7 +482,7 @@ def create_app() -> FastAPI:
     @app.get("/api/reports/download/{filename}")
     async def download_report(filename: str) -> FileResponse:
         """Download a generated PDF report."""
-        filepath = Path("reports") / filename
+        filepath = _REPORTS_DIR / filename
         if not filepath.exists() or not filepath.suffix == ".pdf":
             raise HTTPException(404, f"Report '{filename}' not found")
         return FileResponse(
@@ -468,7 +494,7 @@ def create_app() -> FastAPI:
     @app.delete("/api/reports/{filename}")
     async def delete_report(filename: str) -> dict[str, str]:
         """Delete a generated report."""
-        filepath = Path("reports") / filename
+        filepath = _REPORTS_DIR / filename
         if not filepath.exists():
             raise HTTPException(404, f"Report '{filename}' not found")
         filepath.unlink()
@@ -478,15 +504,17 @@ def create_app() -> FastAPI:
     @app.get("/api/reports/stats")
     async def report_stats() -> dict[str, Any]:
         """Get aggregate report statistics."""
-        reports_dir = Path("reports")
-        if not reports_dir.exists():
+        _REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        if not _REPORTS_DIR.exists():
             return {"total": 0, "total_size": "0 KB", "by_type": {}, "last_generated": None}
-        pdfs = list(reports_dir.glob("*.pdf"))
+        pdfs = list(_REPORTS_DIR.glob("*.pdf"))
         total_size = sum(f.stat().st_size for f in pdfs)
         by_type: dict[str, int] = {}
         for f in pdfs:
             parts = f.stem.split("_")
-            rtype = parts[1] if len(parts) > 1 else "unknown"
+            # New format: citadel_trigger_type_date_time → type at index 2
+            # Old format: citadel_type_date → type at index 1
+            rtype = parts[2] if len(parts) >= 5 else (parts[1] if len(parts) > 1 else "unknown")
             by_type[rtype] = by_type.get(rtype, 0) + 1
         last = max(pdfs, key=lambda p: p.stat().st_mtime) if pdfs else None
         return {
@@ -541,7 +569,8 @@ def create_app() -> FastAPI:
                 "weekly": ["Performance Summary", "Strategy Attribution", "Risk Analysis", "Agent Evolution"],
                 "backtest": ["Parameters", "Equity Curve", "Drawdowns", "Trade Log", "Statistics"],
             },
-            "output_dir": str(Path("reports").resolve()),
+            "output_dir": str(_REPORTS_DIR.resolve()),
+            "naming_pattern": "citadel_{trigger}_{type}_{date}_{HHMMSS}.pdf",
             "email_configured": bool(_state.get("report_gen") and getattr(_state["report_gen"], "_email_config", {}).get("smtp", {}).get("host")),
             "formats": ["pdf"],
         }

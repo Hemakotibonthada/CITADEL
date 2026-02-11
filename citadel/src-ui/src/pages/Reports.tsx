@@ -1,23 +1,22 @@
 /**
- * CITADEL — Reports Page (Full-Featured)
+ * CITADEL — Reports Center (Enhanced UI)
  *
- * Advanced features:
+ * Features:
  *  1. Report generation with progress + per-section toggles
- *  2. Saved-reports file browser with download, preview & delete
+ *  2. Library with grid/list views, trigger badges, enhanced cards
  *  3. Generation stats dashboard (pie, bar, KPIs)
  *  4. Schedule manager with cron descriptions
  *  5. History timeline with filtering & search
- *  6. Report comparison selector
- *  7. Date-range + custom report builder
- *  8. Keyboard shortcut (Ctrl+G = quick generate)
- *  9. Email configuration panel
- * 10. Responsive + animated + themed to CITADEL design system
+ *  6. Date-range + custom report builder
+ *  7. Keyboard shortcut (Ctrl+G = quick generate)
+ *  8. Auto/Manual trigger naming in filenames
+ *  9. Responsive + animated + themed to CITADEL design system
  */
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
-  PieChart, Pie, LineChart, Line, Legend,
+  PieChart, Pie, Legend,
 } from 'recharts';
 import { useStore } from '../store';
 import type { SavedReport, ReportSchedule } from '../store';
@@ -47,6 +46,7 @@ interface GeneratedReport {
   email: boolean;
   duration?: number;
   filename?: string;
+  trigger?: string;
 }
 
 type SubTab = 'generate' | 'library' | 'schedules' | 'analytics';
@@ -128,6 +128,11 @@ function cronToHuman(cron: string): string {
   return `Every day at ${time}`;
 }
 
+function formatTimestamp(time: string): string {
+  if (!time || time.length < 6) return '';
+  return `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`;
+}
+
 const TYPE_COLORS: Record<string, string> = {
   daily: '#00d4ff',
   weekly: '#10b981',
@@ -136,15 +141,23 @@ const TYPE_COLORS: Record<string, string> = {
   agent: '#f59e0b',
 };
 
+const TYPE_ICONS: Record<string, string> = {
+  daily: '📊',
+  weekly: '📈',
+  backtest: '🧪',
+  risk: '🛡️',
+  agent: '🧠',
+};
+
 /* ━━━ Sub-components ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function KPI({ label, value, sub, icon, color }: { label: string; value: string | number; sub?: string; icon?: string; color: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      className="bg-citadel-surface border border-citadel-border rounded-xl p-3 sm:p-4 text-center group hover:border-citadel-accent/30 transition-colors"
+      className="bg-citadel-surface border border-citadel-border rounded-xl p-3 sm:p-4 text-center group hover:border-citadel-accent/30 transition-all duration-300 hover:shadow-lg hover:shadow-citadel-accent/5"
     >
-      {icon && <div className="text-lg mb-1">{icon}</div>}
+      {icon && <div className="text-lg mb-1 group-hover:scale-110 transition-transform">{icon}</div>}
       <div className={`text-xl sm:text-2xl font-bold font-mono ${color}`}>{value}</div>
       <div className="text-[10px] sm:text-xs text-citadel-muted mt-0.5 uppercase tracking-wide">{label}</div>
       {sub && <div className="text-[9px] text-citadel-muted/60 mt-0.5">{sub}</div>}
@@ -229,6 +242,20 @@ function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 
+function TriggerBadge({ trigger }: { trigger: string }) {
+  const isAuto = trigger === 'auto';
+  return (
+    <span className={`inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+      isAuto
+        ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+        : 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isAuto ? 'bg-amber-400' : 'bg-blue-400'}`} />
+      {trigger}
+    </span>
+  );
+}
+
 /* ━━━ Sub-tab: Generate ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 function GenerateTab({
@@ -259,9 +286,12 @@ function GenerateTab({
     const start = Date.now();
 
     try {
-      await triggerReport(template.type, email);
+      await triggerReport(template.type, email, 'manual');
       const duration = (Date.now() - start) / 1000;
-      const fname = `citadel_${template.type}_${dateOverride || new Date().toISOString().split('T')[0]}.pdf`;
+      const ts = new Date();
+      const timeStr = ts.toTimeString().slice(0, 8).replace(/:/g, '');
+      const dateStr = dateOverride || ts.toISOString().split('T')[0];
+      const fname = `citadel_manual_${template.type}_${dateStr}_${timeStr}.pdf`;
       showToast(
         email
           ? `${template.title} generated & emailed in ${duration.toFixed(1)}s`
@@ -272,9 +302,8 @@ function GenerateTab({
         id: nextId++, type: template.type,
         path: `reports/${fname}`, filename: fname,
         timestamp: new Date().toISOString(),
-        status: 'success', email, duration,
+        status: 'success', email, duration, trigger: 'manual',
       }, ...prev]);
-      // refresh library
       fetchSavedReports();
       fetchReportStats();
     } catch (err) {
@@ -282,7 +311,7 @@ function GenerateTab({
       showToast(`Generation failed — ${errMsg}`, 'error');
       setHistory(prev => [{
         id: nextId++, type: template.type, path: '', timestamp: new Date().toISOString(),
-        status: 'error', error: errMsg, email, duration: (Date.now() - start) / 1000,
+        status: 'error', error: errMsg, email, duration: (Date.now() - start) / 1000, trigger: 'manual',
       }, ...prev]);
     } finally {
       setGenerating(prev => ({ ...prev, [key]: false }));
@@ -291,23 +320,26 @@ function GenerateTab({
 
   return (
     <div className="space-y-4">
-      {/* Date override */}
-      <div className="flex items-center gap-3 flex-wrap">
+      {/* Date override + quick-gen hint */}
+      <div className="flex items-center gap-3 flex-wrap bg-citadel-surface/50 border border-citadel-border/50 rounded-xl p-3">
         <label className="text-xs text-citadel-muted font-medium">Report Date:</label>
         <input
           type="date"
           value={dateOverride}
           onChange={(e) => setDateOverride(e.target.value)}
-          className="bg-citadel-bg border border-citadel-border rounded-lg px-3 py-1.5 text-xs font-mono text-citadel-text focus:border-citadel-accent/50 focus:outline-none"
+          className="bg-citadel-bg border border-citadel-border rounded-lg px-3 py-1.5 text-xs font-mono text-citadel-text focus:border-citadel-accent/50 focus:outline-none transition-colors"
         />
         {dateOverride && (
           <button onClick={() => setDateOverride('')} className="text-[10px] text-citadel-accent hover:underline">
             Use today
           </button>
         )}
-        <span className="text-[10px] text-citadel-muted ml-auto hidden sm:inline">
-          Ctrl+G to quick-generate Daily
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <TriggerBadge trigger="manual" />
+          <span className="text-[10px] text-citadel-muted hidden sm:inline">
+            Ctrl+G to quick-generate Daily
+          </span>
+        </div>
       </div>
 
       {/* Templates */}
@@ -427,7 +459,7 @@ function GenerateTab({
         );
       })}
 
-      {/* Quick info */}
+      {/* Naming info */}
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         className="bg-gradient-to-r from-citadel-accent/5 to-blue-600/5 border border-citadel-accent/20 rounded-2xl p-4 sm:p-5"
@@ -437,10 +469,11 @@ function GenerateTab({
           <div>
             <h4 className="text-sm font-bold text-citadel-accent">Tips</h4>
             <ul className="text-xs sm:text-sm text-citadel-muted mt-1 leading-relaxed space-y-1 list-disc list-inside">
-              <li>Reports are saved to <code className="text-citadel-accent bg-citadel-bg px-1 py-0.5 rounded text-[10px] font-mono">reports/</code> and available in the Library tab</li>
-              <li>Configure automatic schedules in the Schedules tab</li>
-              <li>Use the date picker above to generate historical reports</li>
-              <li>Click Configure ▾ to toggle individual sections per report</li>
+              <li>Reports are named as <code className="text-citadel-accent bg-citadel-bg px-1 py-0.5 rounded text-[10px] font-mono">citadel_manual_type_date_HHMMSS.pdf</code></li>
+              <li>Auto-scheduled reports use <code className="text-citadel-accent bg-citadel-bg px-1 py-0.5 rounded text-[10px] font-mono">citadel_auto_type_date_HHMMSS.pdf</code></li>
+              <li>Timestamps enable multiple reports of the same type per day</li>
+              <li>View all generated files in the <strong className="text-citadel-text">Library</strong> tab</li>
+              <li>Click <em>Configure ▾</em> to toggle individual sections per report</li>
             </ul>
           </div>
         </div>
@@ -458,20 +491,23 @@ function LibraryTab({ showToast }: { showToast: (msg: string, type: 'success' | 
   const deleteRpt = useStore((s) => s.deleteReport);
   const reportStats = useStore((s) => s.reportStats);
   const [filter, setFilter] = useState<string>('all');
+  const [triggerFilter, setTriggerFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'date' | 'size' | 'type'>('date');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
 
   useEffect(() => { fetchSavedReports(); fetchReportStats(); }, [fetchSavedReports, fetchReportStats]);
 
   const filtered = useMemo(() => {
     let list = savedReports;
     if (filter !== 'all') list = list.filter(r => r.type === filter);
+    if (triggerFilter !== 'all') list = list.filter(r => r.trigger === triggerFilter);
     if (search) list = list.filter(r => r.filename.toLowerCase().includes(search.toLowerCase()));
     if (sortBy === 'size') list = [...list].sort((a, b) => b.size_bytes - a.size_bytes);
     if (sortBy === 'type') list = [...list].sort((a, b) => a.type.localeCompare(b.type));
     return list;
-  }, [savedReports, filter, search, sortBy]);
+  }, [savedReports, filter, triggerFilter, search, sortBy]);
 
   const handleDelete = async (filename: string) => {
     setDeleting(filename);
@@ -499,94 +535,258 @@ function LibraryTab({ showToast }: { showToast: (msg: string, type: 'success' | 
       )}
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-citadel-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search reports…"
-            className="w-full bg-citadel-bg border border-citadel-border rounded-xl pl-9 pr-3 py-2 text-xs text-citadel-text placeholder:text-citadel-muted/50 focus:border-citadel-accent/50 focus:outline-none"
-          />
+      <div className="bg-citadel-surface/50 border border-citadel-border/50 rounded-xl p-3 space-y-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          {/* Search */}
+          <div className="relative flex-1">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-citadel-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search reports…"
+              className="w-full bg-citadel-bg border border-citadel-border rounded-xl pl-9 pr-3 py-2 text-xs text-citadel-text placeholder:text-citadel-muted/50 focus:border-citadel-accent/50 focus:outline-none transition-colors"
+            />
+          </div>
+
+          {/* Type filters */}
+          <div className="flex gap-1 flex-wrap">
+            {['all', 'daily', 'weekly', 'backtest'].map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium transition-all ${
+                  filter === f
+                    ? 'bg-citadel-accent text-citadel-bg shadow-sm shadow-citadel-accent/20'
+                    : 'bg-citadel-bg border border-citadel-border text-citadel-muted hover:text-citadel-text hover:border-citadel-accent/20'
+                }`}
+              >
+                {f === 'all' ? 'All Types' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {['all', 'daily', 'weekly', 'backtest'].map(f => (
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Trigger filter */}
+          <div className="flex gap-1">
+            {['all', 'manual', 'auto'].map(t => (
+              <button
+                key={t}
+                onClick={() => setTriggerFilter(t)}
+                className={`px-2 py-1 rounded-md text-[10px] font-medium transition-all ${
+                  triggerFilter === t
+                    ? t === 'auto'
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : t === 'manual'
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        : 'bg-citadel-accent/15 text-citadel-accent border border-citadel-accent/30'
+                    : 'bg-citadel-bg/50 text-citadel-muted border border-transparent hover:text-citadel-text'
+                }`}
+              >
+                {t === 'all' ? 'All Triggers' : t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-citadel-bg border border-citadel-border rounded-lg px-2 py-1 text-[10px] text-citadel-text focus:outline-none ml-auto"
+          >
+            <option value="date">Sort: Date</option>
+            <option value="size">Sort: Size</option>
+            <option value="type">Sort: Type</option>
+          </select>
+
+          {/* View toggle */}
+          <div className="flex bg-citadel-bg rounded-lg border border-citadel-border overflow-hidden">
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium transition-all ${
-                filter === f
-                  ? 'bg-citadel-accent text-citadel-bg'
-                  : 'bg-citadel-bg border border-citadel-border text-citadel-muted hover:text-citadel-text'
-              }`}
-            >
-              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
+              onClick={() => setViewMode('list')}
+              className={`px-2 py-1 text-[10px] transition-colors ${viewMode === 'list' ? 'bg-citadel-accent/15 text-citadel-accent' : 'text-citadel-muted hover:text-citadel-text'}`}
+              title="List view"
+            >☰</button>
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-2 py-1 text-[10px] transition-colors ${viewMode === 'grid' ? 'bg-citadel-accent/15 text-citadel-accent' : 'text-citadel-muted hover:text-citadel-text'}`}
+              title="Grid view"
+            >⊞</button>
+          </div>
+
+          {/* Refresh */}
+          <button
+            onClick={() => { fetchSavedReports(); fetchReportStats(); }}
+            className="px-2 py-1 rounded-lg bg-citadel-bg border border-citadel-border text-[10px] text-citadel-muted hover:text-citadel-accent hover:border-citadel-accent/30 transition-colors"
+          >
+            ↻ Refresh
+          </button>
         </div>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-          className="bg-citadel-bg border border-citadel-border rounded-lg px-2 py-1.5 text-xs text-citadel-text focus:outline-none"
-        >
-          <option value="date">Sort: Date</option>
-          <option value="size">Sort: Size</option>
-          <option value="type">Sort: Type</option>
-        </select>
+      </div>
+
+      {/* Results count */}
+      <div className="flex items-center justify-between text-[10px] text-citadel-muted px-1">
+        <span>{filtered.length} report{filtered.length !== 1 ? 's' : ''} found</span>
+        {savedReports.length !== filtered.length && (
+          <span>{savedReports.length - filtered.length} filtered out</span>
+        )}
       </div>
 
       {/* File list */}
       {filtered.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="text-3xl mb-2">📂</div>
-          <div className="text-sm text-citadel-muted">No reports found</div>
-          <div className="text-[10px] text-citadel-muted/60 mt-1">Generate reports from the Generate tab</div>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          {filtered.map((r: SavedReport, i: number) => (
-            <motion.div
-              key={r.filename}
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.02 }}
-              className="flex items-center justify-between bg-citadel-surface border border-citadel-border rounded-xl p-3 hover:border-citadel-accent/20 transition-colors group"
-            >
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500/15 to-red-600/15 flex items-center justify-center text-sm shrink-0">
-                  📄
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs sm:text-sm font-medium text-citadel-text truncate">{r.filename}</div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[9px] px-1.5 py-0.5 rounded font-medium capitalize"
-                      style={{ backgroundColor: `${TYPE_COLORS[r.type] || '#64748b'}20`, color: TYPE_COLORS[r.type] || '#64748b' }}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center py-16 bg-citadel-surface/30 border border-dashed border-citadel-border rounded-2xl"
+        >
+          <div className="text-4xl mb-3">📂</div>
+          <div className="text-sm font-medium text-citadel-text/70">No reports found</div>
+          <div className="text-[11px] text-citadel-muted/60 mt-1.5 max-w-xs mx-auto">
+            {savedReports.length > 0
+              ? 'Try adjusting your filters to see more results'
+              : 'Generate your first report from the Generate tab to get started'}
+          </div>
+          {savedReports.length === 0 && (
+            <div className="mt-4">
+              <span className="inline-flex items-center gap-1.5 text-[10px] text-citadel-accent bg-citadel-accent/10 rounded-lg px-3 py-1.5 border border-citadel-accent/20">
+                ⚡ Tip: Press Ctrl+G for a quick Daily report
+              </span>
+            </div>
+          )}
+        </motion.div>
+      ) : viewMode === 'grid' ? (
+        /* ── Grid View ── */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filtered.map((r: SavedReport, i: number) => {
+            const typeColor = TYPE_COLORS[r.type] || '#64748b';
+            const typeIcon = TYPE_ICONS[r.type] || '📄';
+            return (
+              <motion.div
+                key={r.filename}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.03 }}
+                className="bg-citadel-surface border border-citadel-border rounded-2xl overflow-hidden hover:border-citadel-accent/25 transition-all duration-300 group hover:shadow-lg hover:shadow-citadel-accent/5"
+              >
+                {/* Color header strip */}
+                <div className="h-1.5 w-full" style={{ background: `linear-gradient(to right, ${typeColor}60, ${typeColor}20)` }} />
+
+                <div className="p-4">
+                  {/* Icon + Type */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+                        style={{ background: `${typeColor}15` }}>
+                        {typeIcon}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold capitalize" style={{ color: typeColor }}>{r.type}</span>
+                          <TriggerBadge trigger={r.trigger || 'manual'} />
+                        </div>
+                        <div className="text-[10px] text-citadel-muted mt-0.5">{r.date}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] text-citadel-muted font-mono">{r.size_display}</div>
+                      {r.time && (
+                        <div className="text-[9px] text-citadel-muted/50 font-mono mt-0.5">{formatTimestamp(r.time)}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Filename */}
+                  <div className="text-[10px] font-mono text-citadel-muted/60 truncate mb-3 bg-citadel-bg/50 rounded-lg px-2 py-1 border border-citadel-border/30">
+                    {r.filename}
+                  </div>
+
+                  {/* Meta */}
+                  <div className="text-[9px] text-citadel-muted/50 mb-3">
+                    Created {relativeTime(r.created_at)}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <a
+                      href={`/api/reports/download/${r.filename}`}
+                      download
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-citadel-accent/10 text-citadel-accent text-[10px] sm:text-xs font-medium hover:bg-citadel-accent/20 transition-all border border-citadel-accent/20 hover:border-citadel-accent/40"
                     >
-                      {r.type}
-                    </span>
-                    <span className="text-[10px] text-citadel-muted">{r.size_display}</span>
-                    <span className="text-[10px] text-citadel-muted/60">{relativeTime(r.created_at)}</span>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      Download
+                    </a>
+                    <button
+                      onClick={() => handleDelete(r.filename)}
+                      disabled={deleting === r.filename}
+                      className="px-3 py-2 rounded-xl bg-citadel-danger/10 text-citadel-danger text-[10px] sm:text-xs font-medium hover:bg-citadel-danger/20 transition-all border border-citadel-danger/20 hover:border-citadel-danger/40 disabled:opacity-40"
+                    >
+                      {deleting === r.filename ? <Spinner size={12} /> : '✗ Delete'}
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a
-                  href={`/api/reports/download/${r.filename}`}
-                  download
-                  className="px-2.5 py-1.5 rounded-lg bg-citadel-accent/10 text-citadel-accent text-[10px] sm:text-xs font-medium hover:bg-citadel-accent/20 transition-colors"
-                >
-                  ↓ Download
-                </a>
-                <button
-                  onClick={() => handleDelete(r.filename)}
-                  disabled={deleting === r.filename}
-                  className="px-2 py-1.5 rounded-lg bg-citadel-danger/10 text-citadel-danger text-[10px] sm:text-xs font-medium hover:bg-citadel-danger/20 transition-colors disabled:opacity-40"
-                >
-                  {deleting === r.filename ? '…' : '✗'}
-                </button>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── List View ── */
+        <div className="space-y-1.5">
+          {filtered.map((r: SavedReport, i: number) => {
+            const typeColor = TYPE_COLORS[r.type] || '#64748b';
+            const typeIcon = TYPE_ICONS[r.type] || '📄';
+            return (
+              <motion.div
+                key={r.filename}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.02 }}
+                className="flex items-center justify-between bg-citadel-surface border border-citadel-border rounded-xl p-3 hover:border-citadel-accent/20 transition-all duration-200 group hover:shadow-md hover:shadow-citadel-accent/3"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {/* Type color indicator */}
+                  <div className="w-1 h-10 rounded-full shrink-0" style={{ background: typeColor }} />
+
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center text-base shrink-0"
+                    style={{ background: `${typeColor}15` }}>
+                    {typeIcon}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs sm:text-sm font-medium text-citadel-text truncate">{r.filename}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-medium capitalize"
+                        style={{ backgroundColor: `${typeColor}20`, color: typeColor }}
+                      >
+                        {r.type}
+                      </span>
+                      <TriggerBadge trigger={r.trigger || 'manual'} />
+                      <span className="text-[10px] text-citadel-muted font-mono">{r.size_display}</span>
+                      <span className="text-[10px] text-citadel-muted/50">{r.date}</span>
+                      {r.time && <span className="text-[10px] text-citadel-muted/40 font-mono">{formatTimestamp(r.time)}</span>}
+                      <span className="text-[10px] text-citadel-muted/40">{relativeTime(r.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <a
+                    href={`/api/reports/download/${r.filename}`}
+                    download
+                    className="px-2.5 py-1.5 rounded-lg bg-citadel-accent/10 text-citadel-accent text-[10px] sm:text-xs font-medium hover:bg-citadel-accent/20 transition-colors border border-citadel-accent/20"
+                  >
+                    ↓ Download
+                  </a>
+                  <button
+                    onClick={() => handleDelete(r.filename)}
+                    disabled={deleting === r.filename}
+                    className="px-2 py-1.5 rounded-lg bg-citadel-danger/10 text-citadel-danger text-[10px] sm:text-xs font-medium hover:bg-citadel-danger/20 transition-colors disabled:opacity-40 border border-citadel-danger/20"
+                  >
+                    {deleting === r.filename ? '…' : '✗'}
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -607,19 +807,19 @@ function SchedulesTab() {
         <div>
           <h3 className="text-sm font-semibold">Automatic Report Schedules</h3>
           <p className="text-[10px] text-citadel-muted mt-0.5">
-            Configured in <code className="text-citadel-accent bg-citadel-bg px-1 py-0.5 rounded text-[10px] font-mono">configs/reports.yaml</code>
+            Auto-scheduled reports are named with <TriggerBadge trigger="auto" /> trigger prefix
           </p>
         </div>
         <button
           onClick={() => fetchSchedules()}
-          className="px-3 py-1.5 rounded-lg bg-citadel-bg border border-citadel-border text-xs text-citadel-muted hover:text-citadel-text transition-colors"
+          className="px-3 py-1.5 rounded-lg bg-citadel-bg border border-citadel-border text-xs text-citadel-muted hover:text-citadel-text hover:border-citadel-accent/20 transition-colors"
         >
           ↻ Refresh
         </button>
       </div>
 
       {schedules.length === 0 ? (
-        <div className="text-center py-12">
+        <div className="text-center py-12 bg-citadel-surface/30 border border-dashed border-citadel-border rounded-2xl">
           <div className="text-3xl mb-2">⏰</div>
           <div className="text-sm text-citadel-muted">No schedules configured</div>
         </div>
@@ -631,13 +831,13 @@ function SchedulesTab() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.06 }}
-              className={`bg-citadel-surface border rounded-xl p-4 transition-colors ${
-                s.enabled ? 'border-citadel-success/20 hover:border-citadel-success/40' : 'border-citadel-border opacity-60'
+              className={`bg-citadel-surface border rounded-2xl p-4 transition-all duration-300 hover:shadow-lg ${
+                s.enabled ? 'border-citadel-success/20 hover:border-citadel-success/40 hover:shadow-citadel-success/5' : 'border-citadel-border opacity-60'
               }`}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0 ${
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${
                     s.enabled ? 'bg-citadel-success/10' : 'bg-citadel-muted/10'
                   }`}>
                     {s.type === 'daily' ? '📊' : s.type === 'weekly' ? '📈' : '🧪'}
@@ -645,13 +845,14 @@ function SchedulesTab() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold capitalize">{s.type} Report</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                         s.enabled
-                          ? 'bg-citadel-success/15 text-citadel-success'
-                          : 'bg-citadel-muted/15 text-citadel-muted'
+                          ? 'bg-citadel-success/15 text-citadel-success border border-citadel-success/20'
+                          : 'bg-citadel-muted/15 text-citadel-muted border border-citadel-muted/20'
                       }`}>
                         {s.enabled ? 'Active' : 'Disabled'}
                       </span>
+                      <TriggerBadge trigger="auto" />
                     </div>
                     <div className="text-xs text-citadel-muted mt-0.5">{s.description}</div>
                   </div>
@@ -662,7 +863,7 @@ function SchedulesTab() {
                     <div className="text-[9px] text-citadel-muted/60 font-mono mt-0.5">{s.cron}</div>
                   </div>
                   {s.email && (
-                    <span className="text-[9px] bg-citadel-accent/10 text-citadel-accent px-1.5 py-0.5 rounded font-medium shrink-0">
+                    <span className="text-[9px] bg-citadel-accent/10 text-citadel-accent px-1.5 py-0.5 rounded-full font-medium shrink-0 border border-citadel-accent/20">
                       📧 Email
                     </span>
                   )}
@@ -674,7 +875,7 @@ function SchedulesTab() {
       )}
 
       {/* Email configuration */}
-      <div className="bg-citadel-surface border border-citadel-border rounded-xl p-4">
+      <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
         <h4 className="text-xs font-semibold text-citadel-muted mb-3 uppercase tracking-wider">Email Configuration</h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {[
@@ -683,7 +884,7 @@ function SchedulesTab() {
             { label: 'Recipients', value: '${REPORT_RECIPIENT}', desc: 'Comma-separated recipient list' },
             { label: 'TLS', value: 'Enabled', desc: 'Port 587 with STARTTLS' },
           ].map(item => (
-            <div key={item.label} className="bg-citadel-bg rounded-lg p-2.5 border border-citadel-border/50">
+            <div key={item.label} className="bg-citadel-bg rounded-xl p-2.5 border border-citadel-border/50 hover:border-citadel-accent/15 transition-colors">
               <div className="text-[10px] text-citadel-muted uppercase tracking-wider">{item.label}</div>
               <div className="text-xs font-mono text-citadel-text mt-0.5">{item.value}</div>
               <div className="text-[9px] text-citadel-muted/60 mt-0.5">{item.desc}</div>
@@ -693,20 +894,20 @@ function SchedulesTab() {
       </div>
 
       {/* Output directory info */}
-      <div className="bg-citadel-surface border border-citadel-border rounded-xl p-4">
+      <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
         <h4 className="text-xs font-semibold text-citadel-muted mb-2 uppercase tracking-wider">Output Configuration</h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-citadel-bg rounded-lg p-2.5 border border-citadel-border/50">
+          <div className="bg-citadel-bg rounded-xl p-2.5 border border-citadel-border/50">
             <div className="text-[10px] text-citadel-muted uppercase tracking-wider">Format</div>
             <div className="text-xs font-mono text-citadel-accent mt-0.5">PDF (matplotlib)</div>
           </div>
-          <div className="bg-citadel-bg rounded-lg p-2.5 border border-citadel-border/50">
+          <div className="bg-citadel-bg rounded-xl p-2.5 border border-citadel-border/50">
             <div className="text-[10px] text-citadel-muted uppercase tracking-wider">Output Directory</div>
-            <div className="text-xs font-mono text-citadel-text mt-0.5">./reports/</div>
+            <div className="text-xs font-mono text-citadel-text mt-0.5">citadel/reports/</div>
           </div>
-          <div className="bg-citadel-bg rounded-lg p-2.5 border border-citadel-border/50">
+          <div className="bg-citadel-bg rounded-xl p-2.5 border border-citadel-border/50">
             <div className="text-[10px] text-citadel-muted uppercase tracking-wider">Naming Pattern</div>
-            <div className="text-xs font-mono text-citadel-text mt-0.5">citadel_{'<type>_<date>'}.pdf</div>
+            <div className="text-xs font-mono text-citadel-text mt-0.5">citadel_{'{trigger}_{type}_{date}_{time}'}.pdf</div>
           </div>
         </div>
       </div>
@@ -724,7 +925,7 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
 
   useEffect(() => { fetchReportStats(); fetchSavedReports(); }, [fetchReportStats, fetchSavedReports]);
 
-  // Pie data from saved reports
+  // Pie data by type
   const pieData = useMemo(() => {
     const counts: Record<string, number> = {};
     savedReports.forEach(r => { counts[r.type] = (counts[r.type] || 0) + 1; });
@@ -732,6 +933,17 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
       fill: TYPE_COLORS[name] || '#64748b',
+    }));
+  }, [savedReports]);
+
+  // Pie data by trigger
+  const triggerPieData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    savedReports.forEach(r => { const t = r.trigger || 'manual'; counts[t] = (counts[t] || 0) + 1; });
+    return Object.entries(counts).map(([name, value]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      value,
+      fill: name === 'auto' ? '#f59e0b' : '#3b82f6',
     }));
   }, [savedReports]);
 
@@ -747,7 +959,7 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
   // Size data from saved reports
   const sizeData = useMemo(() => {
     return savedReports.slice(0, 10).map(r => ({
-      name: r.filename.replace('citadel_', '').replace('.pdf', ''),
+      name: r.filename.replace('citadel_', '').replace('.pdf', '').replace(/_/g, ' '),
       size: +(r.size_bytes / 1024).toFixed(1),
     }));
   }, [savedReports]);
@@ -773,7 +985,7 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Reports by Type (Pie) */}
-        <div className="bg-citadel-surface border border-citadel-border rounded-xl p-4">
+        <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
           <h4 className="text-xs font-medium text-citadel-muted mb-3">Reports by Type</h4>
           {pieData.length > 0 ? (
             <div className="h-44">
@@ -803,8 +1015,39 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
           )}
         </div>
 
+        {/* Reports by Trigger (Pie) */}
+        <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
+          <h4 className="text-xs font-medium text-citadel-muted mb-3">Manual vs Auto</h4>
+          {triggerPieData.length > 0 ? (
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={triggerPieData}
+                    cx="50%" cy="50%"
+                    innerRadius={40} outerRadius={70}
+                    paddingAngle={3}
+                    dataKey="value"
+                    stroke="#0a0e17"
+                    strokeWidth={2}
+                  >
+                    {triggerPieData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: '#1a2332', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: '11px' }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '10px' }}
+                    formatter={(value: string) => <span className="text-citadel-text text-[10px]">{value}</span>}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-44 flex items-center justify-center text-xs text-citadel-muted">No data yet</div>
+          )}
+        </div>
+
         {/* Generation Duration (Bar) */}
-        <div className="bg-citadel-surface border border-citadel-border rounded-xl p-4">
+        <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
           <h4 className="text-xs font-medium text-citadel-muted mb-3">Generation Duration (seconds)</h4>
           {durationData.length > 0 ? (
             <div className="h-44">
@@ -829,32 +1072,32 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
           )}
         </div>
 
-        {/* File Sizes (Line) */}
-        <div className="bg-citadel-surface border border-citadel-border rounded-xl p-4 lg:col-span-2">
+        {/* File Sizes (Bar) */}
+        <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
           <h4 className="text-xs font-medium text-citadel-muted mb-3">Report File Sizes (KB)</h4>
           {sizeData.length > 0 ? (
-            <div className="h-36">
+            <div className="h-44">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={sizeData} margin={{ top: 2, right: 10, bottom: 2, left: 4 }}>
+                <BarChart data={sizeData} margin={{ top: 2, right: 10, bottom: 2, left: 4 }} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" opacity={0.2} />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={8} angle={-25} textAnchor="end" height={40} />
-                  <YAxis stroke="#64748b" fontSize={9} tickFormatter={(v: number) => `${v}KB`} />
+                  <XAxis type="number" stroke="#64748b" fontSize={9} tickFormatter={(v: number) => `${v}KB`} />
+                  <YAxis type="category" dataKey="name" stroke="#64748b" fontSize={8} width={100} />
                   <Tooltip contentStyle={{ background: '#1a2332', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: '11px' }}
                     formatter={(v: number) => [`${v} KB`, 'Size']}
                   />
-                  <Line type="monotone" dataKey="size" stroke="#00d4ff" strokeWidth={2} dot={{ r: 3, fill: '#00d4ff' }} />
-                </LineChart>
+                  <Bar dataKey="size" radius={[0, 4, 4, 0]} fill="#00d4ff" opacity={0.6} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="h-36 flex items-center justify-center text-xs text-citadel-muted">No saved reports</div>
+            <div className="h-44 flex items-center justify-center text-xs text-citadel-muted">No saved reports</div>
           )}
         </div>
       </div>
 
       {/* Session History */}
       {history.length > 0 && (
-        <div>
+        <div className="bg-citadel-surface border border-citadel-border rounded-2xl p-4">
           <h3 className="text-sm font-semibold text-citadel-muted mb-3">Session Generation History</h3>
           <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
             {history.slice(0, 30).map((h, i) => {
@@ -877,8 +1120,9 @@ function AnalyticsTab({ history }: { history: GeneratedReport[] }) {
                       {ok ? '✓' : '✗'}
                     </span>
                     <span className="font-semibold capitalize">{h.type}</span>
+                    <TriggerBadge trigger={h.trigger || 'manual'} />
                     {h.email && (
-                      <span className="text-[9px] bg-citadel-accent/10 text-citadel-accent px-1.5 py-0.5 rounded font-medium">+EMAIL</span>
+                      <span className="text-[9px] bg-citadel-accent/10 text-citadel-accent px-1.5 py-0.5 rounded-full font-medium border border-citadel-accent/20">+EMAIL</span>
                     )}
                     <span className="text-citadel-muted text-[10px]">
                       {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -941,12 +1185,14 @@ export default function Reports() {
         showToast('Quick generating Daily report…', 'success');
         const start = Date.now();
         try {
-          await triggerReport('daily', false);
+          await triggerReport('daily', false, 'manual');
           const dur = (Date.now() - start) / 1000;
-          const fname = `citadel_daily_${new Date().toISOString().split('T')[0]}.pdf`;
+          const ts = new Date();
+          const timeStr = ts.toTimeString().slice(0, 8).replace(/:/g, '');
+          const fname = `citadel_manual_daily_${ts.toISOString().split('T')[0]}_${timeStr}.pdf`;
           setHistory(prev => [{
             id: nextId++, type: 'daily', path: `reports/${fname}`, filename: fname,
-            timestamp: new Date().toISOString(), status: 'success', email: false, duration: dur,
+            timestamp: new Date().toISOString(), status: 'success', email: false, duration: dur, trigger: 'manual',
           }, ...prev]);
           showToast(`Daily report generated in ${dur.toFixed(1)}s`, 'success');
           fetchSavedReports();
@@ -965,34 +1211,44 @@ export default function Reports() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-            <span className="text-2xl">📋</span> Reports Center
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-citadel-accent/20 to-blue-600/20 flex items-center justify-center text-xl border border-citadel-accent/20">
+              📋
+            </div>
+            Reports Center
           </h1>
-          <p className="text-xs sm:text-sm text-citadel-muted mt-1">
-            Generate, manage, schedule, and analyze comprehensive PDF reports.
+          <p className="text-xs sm:text-sm text-citadel-muted mt-1.5">
+            Generate, manage, schedule, and analyze comprehensive PDF reports
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] text-citadel-muted/50 font-mono hidden sm:inline">
-            {history.length > 0 ? `${history.length} generated this session` : 'No reports generated yet'}
+            {history.length > 0 ? `${history.length} generated this session` : 'Ready to generate'}
           </span>
         </div>
       </div>
 
       {/* ── Sub-tab navigation ── */}
-      <div className="flex gap-1 bg-citadel-bg/50 border border-citadel-border rounded-xl p-1">
+      <div className="flex gap-1 bg-citadel-surface/60 backdrop-blur-sm border border-citadel-border rounded-2xl p-1.5 shadow-inner">
         {SUB_TABS.map(t => (
           <button
             key={t.key}
             onClick={() => setSubTab(t.key)}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+            className={`relative flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 ${
               subTab === t.key
-                ? 'bg-citadel-surface text-citadel-accent shadow-sm border border-citadel-accent/20'
-                : 'text-citadel-muted hover:text-citadel-text hover:bg-citadel-surface/30'
+                ? 'bg-citadel-bg text-citadel-accent shadow-lg border border-citadel-accent/25'
+                : 'text-citadel-muted hover:text-citadel-text hover:bg-citadel-bg/40'
             }`}
           >
             <span className="text-sm">{t.icon}</span>
             <span className="hidden sm:inline">{t.label}</span>
+            {subTab === t.key && (
+              <motion.div
+                layoutId="reportTabIndicator"
+                className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-citadel-accent rounded-full"
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              />
+            )}
           </button>
         ))}
       </div>
