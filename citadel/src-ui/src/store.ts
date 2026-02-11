@@ -118,6 +118,43 @@ export interface ModelInfo {
   checkpoint_path: string;
 }
 
+export interface SavedReport {
+  filename: string;
+  path: string;
+  type: string;
+  date: string;
+  size_bytes: number;
+  size_display: string;
+  created_at: string;
+  modified_at: string;
+}
+
+export interface ReportStats {
+  total: number;
+  total_size: string;
+  total_size_bytes: number;
+  by_type: Record<string, number>;
+  last_generated: string | null;
+  last_filename: string | null;
+}
+
+export interface ReportSchedule {
+  id: string;
+  type: string;
+  cron: string;
+  email: boolean;
+  enabled: boolean;
+  description: string;
+}
+
+export interface ReportConfig {
+  available_types: string[];
+  available_sections: Record<string, string[]>;
+  output_dir: string;
+  email_configured: boolean;
+  formats: string[];
+}
+
 export type SystemState = 'IDLE' | 'LIVE' | 'PAPER' | 'BACKTEST' | 'HALTED' | 'ERROR';
 export type Tab = 'dashboard' | 'portfolio' | 'agents' | 'models' | 'news' | 'reports' | 'brain';
 
@@ -147,6 +184,12 @@ export interface CitadelStore {
   
   // Model learning
   models: ModelInfo[];
+
+  // Reports
+  savedReports: SavedReport[];
+  reportStats: ReportStats | null;
+  reportSchedules: ReportSchedule[];
+  reportConfig: ReportConfig | null;
   
   // Actions
   setTab: (tab: Tab) => void;
@@ -163,6 +206,10 @@ export interface CitadelStore {
   openStockDetail: (stock: StockDetail) => void;
   closeStockDetail: () => void;
   setModels: (models: ModelInfo[]) => void;
+  setSavedReports: (r: SavedReport[]) => void;
+  setReportStats: (s: ReportStats) => void;
+  setReportSchedules: (s: ReportSchedule[]) => void;
+  setReportConfig: (c: ReportConfig) => void;
   
   // API
   fetchPortfolio: () => Promise<void>;
@@ -175,6 +222,11 @@ export interface CitadelStore {
   fetchModels: () => Promise<void>;
   submitTrade: (symbol: string, action: string, sizePct: number) => Promise<void>;
   triggerReport: (type: string, email: boolean) => Promise<void>;
+  fetchSavedReports: () => Promise<void>;
+  fetchReportStats: () => Promise<void>;
+  fetchReportSchedules: () => Promise<void>;
+  fetchReportConfig: () => Promise<void>;
+  deleteReport: (filename: string) => Promise<void>;
   toggleKillSwitch: (action: string, level?: string) => Promise<void>;
 }
 
@@ -353,6 +405,11 @@ export const useStore = create<CitadelStore>((set, get) => ({
   stockDetailOpen: false,
   models: [],
 
+  savedReports: [],
+  reportStats: null,
+  reportSchedules: [],
+  reportConfig: null,
+
   // Actions
   setTab: (tab) => set({ activeTab: tab }),
   setSystemState: (state) => set({ systemState: state }),
@@ -370,6 +427,10 @@ export const useStore = create<CitadelStore>((set, get) => ({
   openStockDetail: (stock) => set({ selectedStock: stock, stockDetailOpen: true }),
   closeStockDetail: () => set({ stockDetailOpen: false, selectedStock: null }),
   setModels: (models) => set({ models }),
+  setSavedReports: (savedReports) => set({ savedReports }),
+  setReportStats: (reportStats) => set({ reportStats }),
+  setReportSchedules: (reportSchedules) => set({ reportSchedules }),
+  setReportConfig: (reportConfig) => set({ reportConfig }),
 
   // API calls
   fetchPortfolio: async () => {
@@ -436,6 +497,34 @@ export const useStore = create<CitadelStore>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ report_type: type, email }),
     });
+  },
+  fetchSavedReports: async () => {
+    try {
+      const data = await apiFetch<SavedReport[]>('/reports');
+      set({ savedReports: data });
+    } catch { /* offline */ }
+  },
+  fetchReportStats: async () => {
+    try {
+      const data = await apiFetch<ReportStats>('/reports/stats');
+      set({ reportStats: data });
+    } catch { /* offline */ }
+  },
+  fetchReportSchedules: async () => {
+    try {
+      const data = await apiFetch<ReportSchedule[]>('/reports/schedules');
+      set({ reportSchedules: data });
+    } catch { /* offline */ }
+  },
+  fetchReportConfig: async () => {
+    try {
+      const data = await apiFetch<ReportConfig>('/reports/config');
+      set({ reportConfig: data });
+    } catch { /* offline */ }
+  },
+  deleteReport: async (filename) => {
+    await apiFetch(`/reports/${filename}`, { method: 'DELETE' });
+    set((s) => ({ savedReports: s.savedReports.filter(r => r.filename !== filename) }));
   },
   toggleKillSwitch: async (action, level) => {
     await apiFetch('/killswitch', {

@@ -15,16 +15,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import numpy as np
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +73,17 @@ class ReportRequest(BaseModel):
     report_type: str = "daily"
     date: str | None = None
     email: bool = False
+    sections: list[str] | None = None     # optional section filter
+    date_range_start: str | None = None   # for custom range reports
+    date_range_end: str | None = None
+    format: str = "pdf"                   # pdf or html
+
+
+class ReportScheduleRequest(BaseModel):
+    report_type: str = "daily"
+    cron: str = "0 17 30 * * 1-5"         # cron expression
+    email: bool = True
+    enabled: bool = True
 
 
 class KillSwitchRequest(BaseModel):
@@ -394,6 +407,131 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error("report.generation_failed", error=str(e))
             raise HTTPException(500, str(e))
+
+    @app.get("/api/reports")
+    async def list_reports(
+        report_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List all generated PDF reports with metadata."""
+        reports_dir = Path("reports")
+        if not reports_dir.exists():
+            return []
+
+        files: list[dict[str, Any]] = []
+        for f in sorted(reports_dir.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
+            stat = f.stat()
+            name_parts = f.stem.split("_")
+            rtype = name_parts[1] if len(name_parts) > 1 else "unknown"
+            rdate = name_parts[2] if len(name_parts) > 2 else ""
+            if report_type and rtype != report_type:
+                continue
+            files.append({
+                "filename": f.name,
+                "path": str(f),
+                "type": rtype,
+                "date": rdate,
+                "size_bytes": stat.st_size,
+                "size_display": f"{stat.st_size / 1024:.1f} KB",
+                "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
+                "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            })
+            if len(files) >= limit:
+                break
+        return files
+
+    @app.get("/api/reports/download/{filename}")
+    async def download_report(filename: str) -> FileResponse:
+        """Download a generated PDF report."""
+        filepath = Path("reports") / filename
+        if not filepath.exists() or not filepath.suffix == ".pdf":
+            raise HTTPException(404, f"Report '{filename}' not found")
+        return FileResponse(
+            path=str(filepath),
+            media_type="application/pdf",
+            filename=filename,
+        )
+
+    @app.delete("/api/reports/{filename}")
+    async def delete_report(filename: str) -> dict[str, str]:
+        """Delete a generated report."""
+        filepath = Path("reports") / filename
+        if not filepath.exists():
+            raise HTTPException(404, f"Report '{filename}' not found")
+        filepath.unlink()
+        logger.info("report.deleted", filename=filename)
+        return {"status": "deleted", "filename": filename}
+
+    @app.get("/api/reports/stats")
+    async def report_stats() -> dict[str, Any]:
+        """Get aggregate report statistics."""
+        reports_dir = Path("reports")
+        if not reports_dir.exists():
+            return {"total": 0, "total_size": "0 KB", "by_type": {}, "last_generated": None}
+        pdfs = list(reports_dir.glob("*.pdf"))
+        total_size = sum(f.stat().st_size for f in pdfs)
+        by_type: dict[str, int] = {}
+        for f in pdfs:
+            parts = f.stem.split("_")
+            rtype = parts[1] if len(parts) > 1 else "unknown"
+            by_type[rtype] = by_type.get(rtype, 0) + 1
+        last = max(pdfs, key=lambda p: p.stat().st_mtime) if pdfs else None
+        return {
+            "total": len(pdfs),
+            "total_size": f"{total_size / 1024:.1f} KB" if total_size < 1_048_576 else f"{total_size / 1_048_576:.1f} MB",
+            "total_size_bytes": total_size,
+            "by_type": by_type,
+            "last_generated": datetime.fromtimestamp(last.stat().st_mtime, tz=timezone.utc).isoformat() if last else None,
+            "last_filename": last.name if last else None,
+        }
+
+    @app.get("/api/reports/schedules")
+    async def get_schedules() -> list[dict[str, Any]]:
+        """Get configured report schedules."""
+        schedules = _state.get("report_schedules", [
+            {"id": "sched-1", "type": "daily", "cron": "0 30 16 * * 1-5", "email": True, "enabled": True,
+             "description": "Daily report at market close (4:30 PM ET)"},
+            {"id": "sched-2", "type": "weekly", "cron": "0 0 10 * * 6", "email": True, "enabled": True,
+             "description": "Weekly summary every Saturday 10:00 AM ET"},
+            {"id": "sched-3", "type": "backtest", "cron": "0 0 6 1 * *", "email": False, "enabled": False,
+             "description": "Monthly backtest report (disabled)"},
+        ])
+        return schedules
+
+    @app.post("/api/reports/schedules")
+    async def update_schedule(request: ReportScheduleRequest) -> dict[str, Any]:
+        """Add or update a report schedule."""
+        schedules = _state.get("report_schedules", [])
+        new_sched = {
+            "id": f"sched-{len(schedules) + 1}",
+            "type": request.report_type,
+            "cron": request.cron,
+            "email": request.email,
+            "enabled": request.enabled,
+            "description": f"{request.report_type.title()} report ({request.cron})",
+        }
+        schedules.append(new_sched)
+        _state["report_schedules"] = schedules
+        return {"status": "created", "schedule": new_sched}
+
+    @app.get("/api/reports/config")
+    async def report_config() -> dict[str, Any]:
+        """Get report configuration info."""
+        return {
+            "available_types": ["daily", "weekly", "backtest"],
+            "available_sections": {
+                "daily": [
+                    "Executive Summary", "Portfolio Overview", "Today's Activity",
+                    "P&L Analysis", "Agent Learnings", "Risk Metrics",
+                    "Market News", "Performance Metrics", "Strategy Breakdown", "Outlook",
+                ],
+                "weekly": ["Performance Summary", "Strategy Attribution", "Risk Analysis", "Agent Evolution"],
+                "backtest": ["Parameters", "Equity Curve", "Drawdowns", "Trade Log", "Statistics"],
+            },
+            "output_dir": str(Path("reports").resolve()),
+            "email_configured": bool(_state.get("report_gen") and getattr(_state["report_gen"], "_email_config", {}).get("smtp", {}).get("host")),
+            "formats": ["pdf"],
+        }
 
     @app.post("/api/killswitch")
     async def kill_switch(request: KillSwitchRequest) -> dict[str, Any]:
