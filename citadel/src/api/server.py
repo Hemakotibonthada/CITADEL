@@ -106,6 +106,26 @@ class KillSwitchRequest(BaseModel):
     level: str | None = None  # L1, L2, L3
 
 
+class PortfolioSettingsRequest(BaseModel):
+    initial_capital: float | None = None
+    risk_per_trade_pct: float | None = None   # max risk per trade (%)
+    max_position_pct: float | None = None     # max single position as % of portfolio
+    max_positions: int | None = None          # max open positions
+    stop_loss_pct: float | None = None        # default stop loss %
+    take_profit_pct: float | None = None      # default take profit %
+
+
+class ManualPositionRequest(BaseModel):
+    symbol: str
+    quantity: float
+    avg_cost: float
+    side: str = "long"  # long or short
+
+
+class WatchlistRequest(BaseModel):
+    symbols: list[str]
+
+
 # ── WebSocket Manager ────────────────────────────────────
 
 class ConnectionManager:
@@ -179,6 +199,19 @@ _state: dict[str, Any] = {
     "config": None,
     "training_runs": [],          # list of completed training run dicts
     "active_training": None,      # currently running training dict or None
+    # ── Portfolio & Trading State ──
+    "portfolio_settings": {
+        "initial_capital": 100_000.0,
+        "risk_per_trade_pct": 2.0,
+        "max_position_pct": 25.0,
+        "max_positions": 20,
+        "stop_loss_pct": 5.0,
+        "take_profit_pct": 10.0,
+    },
+    "manual_positions": [],        # list of manually-added positions
+    "order_history": [],           # completed/cancelled orders
+    "open_orders": [],             # currently open limit/stop orders
+    "watchlist": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPY"],
 }
 
 
@@ -824,6 +857,279 @@ def create_app() -> FastAPI:
                     pass
 
         return result
+
+    # ── Stock Detail Endpoint ─────────────────────────
+
+    @app.get("/api/stock/{symbol}")
+    async def get_stock_detail(symbol: str) -> dict[str, Any]:
+        """Get stock detail with price, fundamentals, and candle history."""
+        symbol = symbol.upper()
+        # Try to get from data store first
+        store = _state.get("data_store")
+        candles: list[dict[str, Any]] = []
+        if store:
+            try:
+                candles = store.query_candles(symbol=symbol, days=90) or []
+            except Exception:
+                pass
+
+        # Generate synthetic candles if no real data
+        if not candles:
+            base_prices: dict[str, float] = {
+                "AAPL": 195, "MSFT": 420, "GOOGL": 175, "AMZN": 200, "NVDA": 800,
+                "TSLA": 250, "META": 550, "SPY": 520, "QQQ": 445, "IWM": 210,
+            }
+            price = base_prices.get(symbol, 100.0)
+            now = datetime.now(timezone.utc)
+            for i in range(90, -1, -1):
+                from datetime import timedelta
+                d = now - timedelta(days=i)
+                if d.weekday() >= 5:
+                    continue
+                change = price * (np.random.random() - 0.48) * 0.03
+                open_p = price
+                price = max(1.0, price + change)
+                high = max(open_p, price) * (1 + np.random.random() * 0.01)
+                low = min(open_p, price) * (1 - np.random.random() * 0.01)
+                candles.append({
+                    "date": d.strftime("%Y-%m-%d"),
+                    "open": round(open_p, 2),
+                    "high": round(high, 2),
+                    "low": round(low, 2),
+                    "close": round(price, 2),
+                    "volume": int(1e6 + np.random.random() * 5e6),
+                })
+
+        last = candles[-1] if candles else {"close": 100, "high": 105, "low": 95}
+        prev = candles[-2] if len(candles) > 1 else last
+        change = last["close"] - prev["close"]
+        names: dict[str, str] = {
+            "AAPL": "Apple Inc.", "MSFT": "Microsoft Corp.", "GOOGL": "Alphabet Inc.",
+            "AMZN": "Amazon.com Inc.", "NVDA": "NVIDIA Corp.", "TSLA": "Tesla Inc.",
+            "META": "Meta Platforms Inc.", "SPY": "SPDR S&P 500 ETF", "QQQ": "Invesco QQQ Trust",
+            "IWM": "iShares Russell 2000",
+        }
+        return {
+            "symbol": symbol,
+            "name": names.get(symbol, symbol),
+            "price": last["close"],
+            "change": round(change, 2),
+            "changePct": round((change / prev["close"]) * 100, 2) if prev["close"] else 0,
+            "high52w": round(max(c["high"] for c in candles), 2) if candles else 0,
+            "low52w": round(min(c["low"] for c in candles), 2) if candles else 0,
+            "marketCap": f"${round(last['close'] * (1e9 + np.random.random() * 2e9) / 1e9)}B",
+            "pe": round(15 + np.random.random() * 25, 1),
+            "candles": candles,
+            "volumeHistory": [{"date": c["date"], "volume": c["volume"]} for c in candles],
+        }
+
+    # ── Portfolio Settings & Management ───────────────
+
+    @app.get("/api/portfolio/settings")
+    async def get_portfolio_settings() -> dict[str, Any]:
+        """Get portfolio configuration like capital, risk limits."""
+        return _state["portfolio_settings"]
+
+    @app.put("/api/portfolio/settings")
+    async def update_portfolio_settings(request: PortfolioSettingsRequest) -> dict[str, Any]:
+        """Update portfolio settings."""
+        settings = _state["portfolio_settings"]
+        if request.initial_capital is not None:
+            settings["initial_capital"] = request.initial_capital
+        if request.risk_per_trade_pct is not None:
+            settings["risk_per_trade_pct"] = request.risk_per_trade_pct
+        if request.max_position_pct is not None:
+            settings["max_position_pct"] = request.max_position_pct
+        if request.max_positions is not None:
+            settings["max_positions"] = request.max_positions
+        if request.stop_loss_pct is not None:
+            settings["stop_loss_pct"] = request.stop_loss_pct
+        if request.take_profit_pct is not None:
+            settings["take_profit_pct"] = request.take_profit_pct
+        return {"status": "updated", "settings": settings}
+
+    @app.get("/api/portfolio/holdings")
+    async def get_holdings() -> dict[str, Any]:
+        """Get all holdings including manual positions and engine positions."""
+        engine = _state.get("live_engine")
+        engine_positions: list[dict[str, Any]] = []
+        cash = _state["portfolio_settings"]["initial_capital"]
+
+        if engine:
+            snapshot_fn = getattr(engine, "portfolio_snapshot", None)
+            if snapshot_fn and callable(snapshot_fn):
+                snap = snapshot_fn()
+                engine_positions = [p.model_dump(mode="json") for p in snap.positions]
+                cash = snap.cash
+
+        manual = _state.get("manual_positions", [])
+        all_positions = engine_positions + manual
+        invested = sum(abs(p.get("market_value", p.get("quantity", 0) * p.get("avg_cost", 0))) for p in all_positions)
+
+        return {
+            "cash": cash,
+            "invested": round(invested, 2),
+            "total_equity": round(cash + invested, 2),
+            "positions": all_positions,
+            "manual_count": len(manual),
+            "engine_count": len(engine_positions),
+            "settings": _state["portfolio_settings"],
+        }
+
+    @app.post("/api/portfolio/holdings")
+    async def add_manual_position(request: ManualPositionRequest) -> dict[str, Any]:
+        """Add a manual position (for tracking external holdings)."""
+        pos = {
+            "symbol": request.symbol.upper(),
+            "quantity": request.quantity,
+            "avg_cost": request.avg_cost,
+            "market_value": round(request.quantity * request.avg_cost, 2),
+            "unrealized_pnl": 0,
+            "unrealized_pnl_pct": 0,
+            "side": request.side,
+            "source": "manual",
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _state.setdefault("manual_positions", []).append(pos)
+        # Deduct from cash
+        cost = request.quantity * request.avg_cost
+        _state["portfolio_settings"]["initial_capital"] = max(0, _state["portfolio_settings"]["initial_capital"] - cost)
+        return {"status": "added", "position": pos}
+
+    @app.delete("/api/portfolio/holdings/{symbol}")
+    async def remove_manual_position(symbol: str) -> dict[str, Any]:
+        """Remove a manual position and return cash."""
+        symbol = symbol.upper()
+        manual = _state.get("manual_positions", [])
+        removed = None
+        for i, p in enumerate(manual):
+            if p["symbol"] == symbol:
+                removed = manual.pop(i)
+                # Return cash
+                _state["portfolio_settings"]["initial_capital"] += removed["market_value"]
+                break
+        if not removed:
+            raise HTTPException(404, f"Manual position '{symbol}' not found")
+        return {"status": "removed", "position": removed}
+
+    # ── Order Management ──────────────────────────────
+
+    @app.post("/api/orders")
+    async def place_order(request: TradeRequest) -> dict[str, Any]:
+        """Place a new order (market or limit)."""
+        order_id = f"ord_{int(time.time())}_{np.random.randint(1000, 9999)}"
+        order = {
+            "id": order_id,
+            "symbol": request.symbol.upper(),
+            "action": request.action.upper(),
+            "quantity": request.quantity or 0,
+            "size_pct": request.size_pct,
+            "order_type": request.order_type.upper(),
+            "limit_price": request.limit_price,
+            "status": "FILLED" if request.order_type.upper() == "MARKET" else "OPEN",
+            "filled_price": request.limit_price or 0,  # simulated fill
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "filled_at": datetime.now(timezone.utc).isoformat() if request.order_type.upper() == "MARKET" else None,
+        }
+
+        # For market orders, simulate immediate fill
+        if order["status"] == "FILLED" and request.quantity:
+            pos = {
+                "symbol": order["symbol"],
+                "quantity": request.quantity if request.action.upper() == "BUY" else -request.quantity,
+                "avg_cost": request.limit_price or 0,
+                "market_value": round((request.quantity) * (request.limit_price or 0), 2),
+                "unrealized_pnl": 0,
+                "unrealized_pnl_pct": 0,
+                "side": "long" if request.action.upper() == "BUY" else "short",
+                "source": "order",
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # Check if position already exists for this symbol
+            manual = _state.setdefault("manual_positions", [])
+            existing = next((p for p in manual if p["symbol"] == order["symbol"]), None)
+            if existing:
+                # Average in
+                total_qty = existing["quantity"] + pos["quantity"]
+                if total_qty != 0:
+                    existing["avg_cost"] = round(
+                        (existing["quantity"] * existing["avg_cost"] + pos["quantity"] * pos["avg_cost"]) / total_qty, 2
+                    )
+                existing["quantity"] = total_qty
+                existing["market_value"] = round(total_qty * existing["avg_cost"], 2)
+            else:
+                manual.append(pos)
+
+            # Update cash
+            cost = request.quantity * (request.limit_price or 0)
+            if request.action.upper() == "BUY":
+                _state["portfolio_settings"]["initial_capital"] -= cost
+            else:
+                _state["portfolio_settings"]["initial_capital"] += cost
+
+            _state.setdefault("order_history", []).append(order)
+        else:
+            _state.setdefault("open_orders", []).append(order)
+
+        return {"status": order["status"], "order": order}
+
+    @app.get("/api/orders")
+    async def get_orders(status: str | None = None) -> dict[str, Any]:
+        """Get open and historical orders."""
+        open_orders = _state.get("open_orders", [])
+        history = _state.get("order_history", [])
+        if status:
+            open_orders = [o for o in open_orders if o["status"] == status.upper()]
+            history = [o for o in history if o["status"] == status.upper()]
+        return {
+            "open": open_orders,
+            "history": history[-50:],
+            "total_open": len(_state.get("open_orders", [])),
+            "total_filled": len(_state.get("order_history", [])),
+        }
+
+    @app.delete("/api/orders/{order_id}")
+    async def cancel_order(order_id: str) -> dict[str, Any]:
+        """Cancel an open order."""
+        open_orders = _state.get("open_orders", [])
+        for i, o in enumerate(open_orders):
+            if o["id"] == order_id:
+                o["status"] = "CANCELLED"
+                o["filled_at"] = datetime.now(timezone.utc).isoformat()
+                _state.setdefault("order_history", []).append(open_orders.pop(i))
+                return {"status": "cancelled", "order": o}
+        raise HTTPException(404, f"Order '{order_id}' not found")
+
+    # ── Watchlist ─────────────────────────────────────
+
+    @app.get("/api/watchlist")
+    async def get_watchlist() -> dict[str, Any]:
+        """Get watchlist symbols."""
+        return {"symbols": _state.get("watchlist", [])}
+
+    @app.put("/api/watchlist")
+    async def update_watchlist(request: WatchlistRequest) -> dict[str, Any]:
+        """Set watchlist symbols."""
+        _state["watchlist"] = [s.upper() for s in request.symbols]
+        return {"status": "updated", "symbols": _state["watchlist"]}
+
+    @app.post("/api/watchlist/{symbol}")
+    async def add_to_watchlist(symbol: str) -> dict[str, Any]:
+        """Add a symbol to watchlist."""
+        symbol = symbol.upper()
+        wl = _state.setdefault("watchlist", [])
+        if symbol not in wl:
+            wl.append(symbol)
+        return {"status": "added", "symbols": wl}
+
+    @app.delete("/api/watchlist/{symbol}")
+    async def remove_from_watchlist(symbol: str) -> dict[str, Any]:
+        """Remove a symbol from watchlist."""
+        symbol = symbol.upper()
+        wl = _state.get("watchlist", [])
+        if symbol in wl:
+            wl.remove(symbol)
+        return {"status": "removed", "symbols": wl}
 
     @app.post("/api/killswitch")
     async def kill_switch(request: KillSwitchRequest) -> dict[str, Any]:

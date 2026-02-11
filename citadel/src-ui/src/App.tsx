@@ -15,10 +15,12 @@ import ModelLearning from './pages/ModelLearning';
 import Brain from './pages/Brain';
 import NewsPage from './pages/NewsPage';
 import Reports from './pages/Reports';
+import Trading from './pages/Trading';
 
 const PAGE_MAP: Record<string, React.FC> = {
   dashboard: Dashboard,
   portfolio: Portfolio,
+  trading: Trading,
   agents: Agents,
   models: ModelLearning,
   brain: Brain,

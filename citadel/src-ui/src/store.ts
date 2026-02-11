@@ -16,6 +16,48 @@ export interface Position {
   unrealized_pnl: number;
   unrealized_pnl_pct: number;
   side: string;
+  source?: string;
+  added_at?: string;
+}
+
+export interface PortfolioSettings {
+  initial_capital: number;
+  risk_per_trade_pct: number;
+  max_position_pct: number;
+  max_positions: number;
+  stop_loss_pct: number;
+  take_profit_pct: number;
+}
+
+export interface HoldingsResponse {
+  cash: number;
+  invested: number;
+  total_equity: number;
+  positions: Position[];
+  manual_count: number;
+  engine_count: number;
+  settings: PortfolioSettings;
+}
+
+export interface Order {
+  id: string;
+  symbol: string;
+  action: string;
+  quantity: number;
+  size_pct: number | null;
+  order_type: string;
+  limit_price: number | null;
+  status: string;
+  filled_price: number;
+  created_at: string;
+  filled_at: string | null;
+}
+
+export interface OrdersResponse {
+  open: Order[];
+  history: Order[];
+  total_open: number;
+  total_filled: number;
 }
 
 export interface PortfolioState {
@@ -28,7 +70,7 @@ export interface PortfolioState {
 }
 
 export interface AgentStatus {
-  name: string;
+  name?: string;
   status: string;
   uptime?: number;
   metrics?: Record<string, unknown>;
@@ -43,14 +85,14 @@ export interface Trade {
   action: string;
   quantity: number;
   price: number;
-  pnl?: number;
+  pnl: number | null;
   timestamp: string;
 }
 
 export interface NewsItem {
   title: string;
   source: string;
-  sentiment: string;
+  sentiment?: string;
   score: number;
   symbols: string[];
   timestamp: string;
@@ -93,7 +135,7 @@ export interface StockDetail {
   marketCap: string;
   pe: number;
   candles: CandleData[];
-  volumeHistory: { date: string; volume: number }[];
+  volumeHistory: Array<{ date: string; volume: number }>;
 }
 
 export interface TrainingEpoch {
@@ -146,14 +188,7 @@ export interface TrainingRun {
   finished_at?: string;
   elapsed_s: number;
   epoch_history: TrainingEpoch[];
-  config: {
-    epochs: number;
-    learning_rate: number;
-    batch_size: number;
-    rank: number;
-    data_source: string;
-    samples: number;
-  };
+  config: Record<string, unknown>;
   error?: string;
 }
 
@@ -217,7 +252,7 @@ export interface ReportConfig {
 }
 
 export type SystemState = 'IDLE' | 'LIVE' | 'PAPER' | 'BACKTEST' | 'HALTED' | 'ERROR';
-export type Tab = 'dashboard' | 'portfolio' | 'agents' | 'models' | 'news' | 'reports' | 'brain';
+export type Tab = 'dashboard' | 'portfolio' | 'trading' | 'agents' | 'models' | 'news' | 'reports' | 'brain';
 
 export interface CitadelStore {
   // System
@@ -228,8 +263,14 @@ export interface CitadelStore {
   
   // Portfolio
   portfolio: PortfolioState;
+  portfolioSettings: PortfolioSettings;
+  holdings: HoldingsResponse | null;
   pnlHistory: PnlDataPoint[];
   trades: Trade[];
+  
+  // Trading
+  orders: OrdersResponse | null;
+  watchlist: string[];
   
   // Agents
   agents: Record<string, AgentStatus>;
@@ -302,6 +343,18 @@ export interface CitadelStore {
   fetchReportConfig: () => Promise<void>;
   deleteReport: (filename: string) => Promise<void>;
   toggleKillSwitch: (action: string, level?: string) => Promise<void>;
+  // New trading APIs
+  fetchHoldings: () => Promise<void>;
+  fetchPortfolioSettings: () => Promise<void>;
+  updatePortfolioSettings: (settings: Partial<PortfolioSettings>) => Promise<void>;
+  addManualPosition: (symbol: string, quantity: number, avgCost: number, side?: string) => Promise<void>;
+  removeManualPosition: (symbol: string) => Promise<void>;
+  placeOrder: (symbol: string, action: string, quantity: number, orderType: string, limitPrice?: number) => Promise<void>;
+  cancelOrder: (orderId: string) => Promise<void>;
+  fetchOrders: () => Promise<void>;
+  fetchWatchlist: () => Promise<void>;
+  addToWatchlist: (symbol: string) => Promise<void>;
+  removeFromWatchlist: (symbol: string) => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -315,135 +368,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// Demo data generators
-function generateDemoCandles(symbol: string, days: number = 90): CandleData[] {
-  const basePrices: Record<string, number> = {
-    AAPL: 195, MSFT: 420, GOOGL: 175, AMZN: 200, NVDA: 800,
-    TSLA: 250, META: 550, SPY: 520, QQQ: 445, IWM: 210,
-  };
-  let price = basePrices[symbol] || 100;
-  const candles: CandleData[] = [];
-  const now = new Date();
-  for (let i = days; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    if (d.getDay() === 0 || d.getDay() === 6) continue;
-    const change = price * (Math.random() - 0.48) * 0.03;
-    const open = price;
-    price = Math.max(1, price + change);
-    const high = Math.max(open, price) * (1 + Math.random() * 0.01);
-    const low = Math.min(open, price) * (1 - Math.random() * 0.01);
-    candles.push({
-      date: d.toISOString().slice(0, 10),
-      open: +open.toFixed(2),
-      high: +high.toFixed(2),
-      low: +low.toFixed(2),
-      close: +price.toFixed(2),
-      volume: Math.round(1e6 + Math.random() * 5e6),
-    });
-  }
-  return candles;
-}
-
-function generateDemoStockDetail(symbol: string): StockDetail {
-  const candles = generateDemoCandles(symbol);
-  const last = candles[candles.length - 1];
-  const prev = candles[candles.length - 2];
-  const change = last.close - prev.close;
-  const names: Record<string, string> = {
-    AAPL: 'Apple Inc.', MSFT: 'Microsoft Corp.', GOOGL: 'Alphabet Inc.',
-    AMZN: 'Amazon.com Inc.', NVDA: 'NVIDIA Corp.', TSLA: 'Tesla Inc.',
-    META: 'Meta Platforms Inc.', SPY: 'SPDR S&P 500 ETF', QQQ: 'Invesco QQQ Trust', IWM: 'iShares Russell 2000',
-  };
-  return {
-    symbol,
-    name: names[symbol] || symbol,
-    price: last.close,
-    change,
-    changePct: (change / prev.close) * 100,
-    high52w: Math.max(...candles.map(c => c.high)),
-    low52w: Math.min(...candles.map(c => c.low)),
-    marketCap: '$' + (last.close * (1e9 + Math.random() * 2e9) / 1e9).toFixed(0) + 'B',
-    pe: +(15 + Math.random() * 25).toFixed(1),
-    candles,
-    volumeHistory: candles.map(c => ({ date: c.date, volume: c.volume })),
-  };
-}
-
-function generateDemoModels(): ModelInfo[] {
-  const makeHistory = (epochs: number, startLoss: number): TrainingEpoch[] => {
-    const history: TrainingEpoch[] = [];
-    let loss = startLoss;
-    let valLoss = startLoss * 1.1;
-    let lr = 0.001;
-    for (let i = 1; i <= epochs; i++) {
-      loss *= (0.92 + Math.random() * 0.06);
-      valLoss *= (0.93 + Math.random() * 0.07);
-      if (i % 10 === 0) lr *= 0.5;
-      history.push({
-        epoch: i,
-        loss: +loss.toFixed(6),
-        val_loss: +valLoss.toFixed(6),
-        accuracy: +Math.min(0.98, 0.5 + (i / epochs) * 0.45 + Math.random() * 0.03).toFixed(4),
-        learning_rate: lr,
-        timestamp: new Date(Date.now() - (epochs - i) * 60000).toISOString(),
-      });
-    }
-    return history;
-  };
-
-  return [
-    {
-      name: 'FinBERT Sentiment',
-      type: 'Transformer (BERT)',
-      status: 'trained',
-      total_epochs: 30,
-      current_epoch: 30,
-      best_loss: 0.0412,
-      training_history: makeHistory(30, 0.85),
-      last_trained: new Date(Date.now() - 3600000).toISOString(),
-      parameters: 110_000_000,
-      checkpoint_path: 'models/finbert/checkpoint-best.pt',
-    },
-    {
-      name: 'MiniLM Embeddings',
-      type: 'Sentence Transformer',
-      status: 'trained',
-      total_epochs: 20,
-      current_epoch: 20,
-      best_loss: 0.0289,
-      training_history: makeHistory(20, 0.65),
-      last_trained: new Date(Date.now() - 7200000).toISOString(),
-      parameters: 22_700_000,
-      checkpoint_path: 'models/minilm/checkpoint-best.pt',
-    },
-    {
-      name: 'LoRA Adapter (Strategy)',
-      type: 'LoRA Fine-tune',
-      status: 'training',
-      total_epochs: 50,
-      current_epoch: 35,
-      best_loss: 0.0567,
-      training_history: makeHistory(35, 1.2),
-      last_trained: new Date().toISOString(),
-      parameters: 294_912,
-      checkpoint_path: 'models/lora/checkpoint-ep35.npz',
-    },
-    {
-      name: 'Signal Predictor',
-      type: 'MLP + Attention',
-      status: 'queued',
-      total_epochs: 100,
-      current_epoch: 0,
-      best_loss: 0,
-      training_history: [],
-      last_trained: '',
-      parameters: 1_850_000,
-      checkpoint_path: '',
-    },
-  ];
-}
-
 export const useStore = create<CitadelStore>((set, get) => ({
   // Defaults
   systemState: 'IDLE',
@@ -452,15 +376,26 @@ export const useStore = create<CitadelStore>((set, get) => ({
   activeTab: 'dashboard',
 
   portfolio: {
-    total_equity: 100000,
-    cash: 100000,
+    total_equity: 0,
+    cash: 0,
     positions: [],
     daily_pnl: 0,
     total_pnl: 0,
     leverage: 0,
   },
+  portfolioSettings: {
+    initial_capital: 100000,
+    risk_per_trade_pct: 2.0,
+    max_position_pct: 25.0,
+    max_positions: 20,
+    stop_loss_pct: 5.0,
+    take_profit_pct: 10.0,
+  },
+  holdings: null,
   pnlHistory: [],
   trades: [],
+  orders: null,
+  watchlist: [],
 
   agents: {},
   cotStream: [],
@@ -554,25 +489,19 @@ export const useStore = create<CitadelStore>((set, get) => ({
     try {
       const data = await apiFetch<StockDetail>(`/stock/${symbol}`);
       set({ selectedStock: data, stockDetailOpen: true });
-    } catch {
-      // Fallback to demo data
-      set({ selectedStock: generateDemoStockDetail(symbol), stockDetailOpen: true });
-    }
+    } catch { /* offline */ }
   },
   fetchModels: async () => {
     try {
       const data = await apiFetch<ModelInfo[]>('/models');
       set({ models: data });
-    } catch {
-      set({ models: generateDemoModels() });
-    }
+    } catch { /* offline */ }
   },
   startTraining: async (config) => {
-    const data = await apiFetch<{ run_id: string }>('/models/train', {
+    await apiFetch<{ run_id: string }>('/models/train', {
       method: 'POST',
       body: JSON.stringify(config),
     });
-    // Immediately poll for status
     try {
       const status = await apiFetch<TrainingRun>('/models/training/status');
       if (status.id) set({ activeTraining: status });
@@ -666,5 +595,87 @@ export const useStore = create<CitadelStore>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ action, level }),
     });
+  },
+
+  // ── New Trading APIs ───────────────────────────────
+  fetchHoldings: async () => {
+    try {
+      const data = await apiFetch<HoldingsResponse>('/portfolio/holdings');
+      set({
+        holdings: data,
+        portfolio: {
+          ...get().portfolio,
+          cash: data.cash,
+          total_equity: data.total_equity,
+          positions: data.positions,
+        },
+        portfolioSettings: data.settings,
+      });
+    } catch { /* offline */ }
+  },
+  fetchPortfolioSettings: async () => {
+    try {
+      const data = await apiFetch<PortfolioSettings>('/portfolio/settings');
+      set({ portfolioSettings: data });
+    } catch { /* offline */ }
+  },
+  updatePortfolioSettings: async (settings) => {
+    try {
+      const resp = await apiFetch<{ settings: PortfolioSettings }>('/portfolio/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+      set({ portfolioSettings: resp.settings });
+    } catch { /* offline */ }
+  },
+  addManualPosition: async (symbol, quantity, avgCost, side = 'long') => {
+    await apiFetch('/portfolio/holdings', {
+      method: 'POST',
+      body: JSON.stringify({ symbol, quantity, avg_cost: avgCost, side }),
+    });
+    get().fetchHoldings();
+  },
+  removeManualPosition: async (symbol) => {
+    await apiFetch(`/portfolio/holdings/${symbol}`, { method: 'DELETE' });
+    get().fetchHoldings();
+  },
+  placeOrder: async (symbol, action, quantity, orderType, limitPrice) => {
+    await apiFetch('/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        symbol, action, quantity, order_type: orderType,
+        limit_price: limitPrice,
+      }),
+    });
+    get().fetchOrders();
+    get().fetchHoldings();
+  },
+  cancelOrder: async (orderId) => {
+    await apiFetch(`/orders/${orderId}`, { method: 'DELETE' });
+    get().fetchOrders();
+  },
+  fetchOrders: async () => {
+    try {
+      const data = await apiFetch<OrdersResponse>('/orders');
+      set({ orders: data });
+    } catch { /* offline */ }
+  },
+  fetchWatchlist: async () => {
+    try {
+      const data = await apiFetch<{ symbols: string[] }>('/watchlist');
+      set({ watchlist: data.symbols });
+    } catch { /* offline */ }
+  },
+  addToWatchlist: async (symbol) => {
+    try {
+      const data = await apiFetch<{ symbols: string[] }>(`/watchlist/${symbol}`, { method: 'POST' });
+      set({ watchlist: data.symbols });
+    } catch { /* offline */ }
+  },
+  removeFromWatchlist: async (symbol) => {
+    try {
+      const data = await apiFetch<{ symbols: string[] }>(`/watchlist/${symbol}`, { method: 'DELETE' });
+      set({ watchlist: data.symbols });
+    } catch { /* offline */ }
   },
 }));

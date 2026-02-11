@@ -9,6 +9,7 @@ import { useStore, type Tab } from '../store';
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
   { id: 'portfolio', label: 'Portfolio', icon: '💼' },
+  { id: 'trading',   label: 'Trading',   icon: '💹' },
   { id: 'agents',    label: 'Agents',    icon: '🤖' },
   { id: 'models',    label: 'Models',    icon: '🧠' },
   { id: 'brain',     label: 'Brain',     icon: '⚡' },

@@ -29,13 +29,17 @@ function StatCard({ label, value, sub, color, icon }: { label: string; value: st
 
 function EquityCurve() {
   const pnlHistory = useStore((s) => s.pnlHistory);
-  const data = pnlHistory.length > 0 ? pnlHistory : [
-    { date: 'Jan 6', equity: 100000, pnl: 0, cumulative: 0 }, { date: 'Jan 7', equity: 100500, pnl: 500, cumulative: 500 },
-    { date: 'Jan 8', equity: 101200, pnl: 700, cumulative: 1200 }, { date: 'Jan 9', equity: 100800, pnl: -400, cumulative: 800 },
-    { date: 'Jan 10', equity: 102100, pnl: 1300, cumulative: 2100 }, { date: 'Jan 13', equity: 101900, pnl: -200, cumulative: 1900 },
-    { date: 'Jan 14', equity: 103200, pnl: 1300, cumulative: 3200 }, { date: 'Jan 15', equity: 103800, pnl: 600, cumulative: 3800 },
-    { date: 'Jan 16', equity: 102900, pnl: -900, cumulative: 2900 }, { date: 'Jan 17', equity: 104500, pnl: 1600, cumulative: 4500 },
-  ];
+  if (pnlHistory.length === 0) {
+    return (
+      <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4 h-64 sm:h-72 lg:h-80 flex items-center justify-center">
+        <div className="text-center text-citadel-muted">
+          <span className="text-3xl block mb-2">📈</span>
+          <span className="text-xs">No equity data yet. Start trading to see your curve.</span>
+        </div>
+      </div>
+    );
+  }
+  const data = pnlHistory;
   return (
     <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4 h-64 sm:h-72 lg:h-80">
       <div className="flex items-center justify-between mb-2"><h3 className="text-xs sm:text-sm font-medium text-citadel-muted">Equity Curve</h3>
@@ -60,7 +64,17 @@ function PnlWaterfall() {
   const pnlHistory = useStore((s) => s.pnlHistory);
   const data = pnlHistory.length > 0
     ? pnlHistory.slice(-14).map(d => ({ ...d, fill: d.pnl >= 0 ? '#10b981' : '#ef4444' }))
-    : [{ date:'Mon',pnl:500,fill:'#10b981'},{ date:'Tue',pnl:700,fill:'#10b981'},{ date:'Wed',pnl:-400,fill:'#ef4444'},{ date:'Thu',pnl:1300,fill:'#10b981'},{ date:'Fri',pnl:-200,fill:'#ef4444'},{ date:'Mon2',pnl:850,fill:'#10b981'},{ date:'Tue2',pnl:-150,fill:'#ef4444'},{ date:'Wed2',pnl:920,fill:'#10b981'}];
+    : [];
+  if (data.length === 0) {
+    return (
+      <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4 h-64 sm:h-72 lg:h-80 flex items-center justify-center">
+        <div className="text-center text-citadel-muted">
+          <span className="text-3xl block mb-2">📊</span>
+          <span className="text-xs">No P&L data yet</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4 h-64 sm:h-72 lg:h-80">
       <h3 className="text-xs sm:text-sm font-medium text-citadel-muted mb-2">Daily P&L</h3>
@@ -78,12 +92,18 @@ function PnlWaterfall() {
 function PositionGrid() {
   const positions = useStore((s) => s.portfolio.positions);
   const fetchStockDetail = useStore((s) => s.fetchStockDetail);
-  const items = positions.length > 0 ? positions : [
-    {symbol:'AAPL',quantity:100,unrealized_pnl:245.50,unrealized_pnl_pct:1.26},{symbol:'MSFT',quantity:50,unrealized_pnl:-120.30,unrealized_pnl_pct:-0.57},
-    {symbol:'NVDA',quantity:25,unrealized_pnl:890.00,unrealized_pnl_pct:4.45},{symbol:'TSLA',quantity:40,unrealized_pnl:-340.20,unrealized_pnl_pct:-1.36},
-    {symbol:'GOOGL',quantity:60,unrealized_pnl:155.80,unrealized_pnl_pct:0.89},{symbol:'META',quantity:30,unrealized_pnl:420.10,unrealized_pnl_pct:2.55},
-    {symbol:'SPY',quantity:200,unrealized_pnl:180.00,unrealized_pnl_pct:0.35},{symbol:'AMZN',quantity:45,unrealized_pnl:-85.60,unrealized_pnl_pct:-0.43},
-  ] as Array<{symbol:string;quantity:number;unrealized_pnl:number;unrealized_pnl_pct:number}>;
+  const items = positions;
+  if (items.length === 0) {
+    return (
+      <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4">
+        <h3 className="text-xs sm:text-sm font-medium text-citadel-muted mb-2 sm:mb-3">Positions</h3>
+        <div className="text-center text-citadel-muted py-8">
+          <span className="text-3xl block mb-2">💼</span>
+          <span className="text-xs">No positions yet. Go to Trading to place orders.</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4">
       <h3 className="text-xs sm:text-sm font-medium text-citadel-muted mb-2 sm:mb-3">Positions <span className="text-citadel-accent">(click for chart)</span></h3>
@@ -109,7 +129,15 @@ function PositionGrid() {
 function AgentCards() {
   const agents = useStore((s) => s.agents);
   const list = Object.entries(agents).length > 0 ? Object.entries(agents)
-    : [['Sentinel',{status:'ACTIVE'}],['Librarian',{status:'ACTIVE'}],['Tactician',{status:'ACTIVE'}],['Student',{status:'IDLE'}]] as [string,Record<string,string>][];
+    : [];
+  if (list.length === 0) {
+    return (
+      <div className="bg-citadel-card border border-citadel-border rounded-xl p-3 sm:p-4">
+        <h3 className="text-xs sm:text-sm font-medium text-citadel-muted mb-2 sm:mb-3">Agent Swarm</h3>
+        <div className="text-center text-citadel-muted py-6"><span className="text-2xl block mb-1">🤖</span><span className="text-xs">No agents active</span></div>
+      </div>
+    );
+  }
   const icons: Record<string,string> = {Sentinel:'🛡️',Librarian:'📚',Tactician:'🎯',Student:'🧠'};
   const sc: Record<string,string> = {ACTIVE:'bg-citadel-success',IDLE:'bg-citadel-muted',ERROR:'bg-citadel-danger',PROCESSING:'bg-citadel-warning'};
   return (
@@ -120,7 +148,7 @@ function AgentCards() {
           <motion.div key={name} whileHover={{x:3}} className="flex items-center gap-2 p-2.5 rounded-lg bg-citadel-bg/50 border border-citadel-border/50">
             <span className="text-lg">{icons[name]||'🤖'}</span>
             <div className="flex-1 min-w-0"><div className="text-xs sm:text-sm font-medium truncate">{name}</div>
-              <div className="flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${sc[(agent as Record<string,string>).status]||sc.IDLE}`}/><span className="text-[10px] text-citadel-muted uppercase">{(agent as Record<string,string>).status||'idle'}</span></div>
+              <div className="flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${sc[(agent as unknown as Record<string,string>).status]||sc.IDLE}`}/><span className="text-[10px] text-citadel-muted uppercase">{(agent as unknown as Record<string,string>).status||'idle'}</span></div>
             </div>
           </motion.div>
         ))}
@@ -157,9 +185,8 @@ function SectorAllocation() {
   const cash = useStore((s) => s.portfolio.cash);
   const sectors: Record<string,string> = {AAPL:'Tech',MSFT:'Tech',GOOGL:'Tech',META:'Tech',AMZN:'Consumer',TSLA:'Auto',NVDA:'Semis',SPY:'Index',QQQ:'Index',IWM:'Index'};
   const sectorColors: Record<string,string> = {Tech:'#00d4ff',Consumer:'#10b981',Auto:'#f59e0b',Semis:'#8b5cf6',Index:'#ec4899',Cash:'#64748b',Other:'#94a3b8'};
-  const sm = new Map<string,number>();sm.set('Cash',cash||100000);
+  const sm = new Map<string,number>();sm.set('Cash',cash||0);
   for(const p of positions){const sec=sectors[p.symbol]||'Other';sm.set(sec,(sm.get(sec)||0)+Math.abs(p.market_value));}
-  if(!positions.length){sm.set('Tech',42000);sm.set('Semis',18000);sm.set('Consumer',12000);sm.set('Index',28000);}
   const data=Array.from(sm.entries()).map(([name,value])=>({name,value})).filter(d=>d.value>0);
   const COLORS=data.map(d=>sectorColors[d.name]||'#64748b');
   return (

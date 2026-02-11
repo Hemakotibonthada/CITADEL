@@ -23,25 +23,6 @@ const TYPE_STYLES: Record<string, { color: string; label: string; icon: string }
   error:       { color: 'text-citadel-danger', label: 'ERR', icon: '⚠️' },
 };
 
-function generateDemoThoughts(): ThoughtStep[] {
-  const now = Date.now();
-  const thoughts: ThoughtStep[] = [
-    { id: 1, type: 'observation', agent: 'Sentinel', text: 'Market opened with VIX at 18.3, S&P500 up 0.2% pre-market. Scanning 500+ tickers for unusual volume patterns.', confidence: 0.92, timestamp: new Date(now - 300000).toISOString() },
-    { id: 2, type: 'reasoning', agent: 'Sentinel', text: 'AAPL shows 3.2x average volume in first 15 min. RSI(14) = 72.1, approaching overbought. MACD histogram expanding positive. Pattern suggests momentum continuation but with reversal risk above $195.', confidence: 0.78, timestamp: new Date(now - 280000).toISOString() },
-    { id: 3, type: 'observation', agent: 'Librarian', text: 'FinBERT sentiment analysis on 47 news articles: AAPL sentiment score +0.73 (bullish). Key driver: strong iPhone 16 pre-order numbers exceeding analyst estimates by 12%.', confidence: 0.85, timestamp: new Date(now - 260000).toISOString() },
-    { id: 4, type: 'reasoning', agent: 'Strategist', text: 'Cross-referencing Sentinel signal (momentum) with Librarian data (positive sentiment). Historical backtest: when RSI > 70 AND sentiment > +0.5, next-day return averages +0.8% with 67% win rate. Risk/reward = 2.3:1.', confidence: 0.81, timestamp: new Date(now - 240000).toISOString() },
-    { id: 5, type: 'decision', agent: 'Strategist', text: 'SIGNAL: LONG AAPL @ $192.50 | Target: $196.80 (+2.2%) | Stop: $190.50 (-1.0%) | Size: 2.5% of portfolio | Risk Score: 3.2/10', confidence: 0.86, timestamp: new Date(now - 220000).toISOString() },
-    { id: 6, type: 'action', agent: 'Executor', text: 'Order submitted: BUY 130 AAPL @ LIMIT $192.55 | TIF: DAY | Attached OCO: TP=$196.80 SL=$190.50', confidence: 0.95, timestamp: new Date(now - 200000).toISOString() },
-    { id: 7, type: 'observation', agent: 'Sentinel', text: 'NVDA flagged: earnings in 3 days, implied volatility rank 89th percentile. Options skew suggests institutional hedging.', confidence: 0.88, timestamp: new Date(now - 180000).toISOString() },
-    { id: 8, type: 'reasoning', agent: 'Strategist', text: 'Pre-earnings play analysis: NVDA IV crush historically averages 8.2% post-earnings. Current IV premium suggests market pricing in ±7.5% move. Directional bet not recommended; consider volatility strategy.', confidence: 0.72, timestamp: new Date(now - 160000).toISOString() },
-    { id: 9, type: 'decision', agent: 'Strategist', text: 'HOLD on NVDA directional trade. Monitor for post-earnings entry. Risk management: reduce existing NVDA exposure by 30% before earnings.', confidence: 0.90, timestamp: new Date(now - 140000).toISOString() },
-    { id: 10, type: 'observation', agent: 'Librarian', text: 'Federal Reserve minutes released. Tone analysis: dovish shift detected (score: -0.35 vs previous -0.12). Key phrase frequency: "data dependent" 14x, "gradual" 8x.', confidence: 0.91, timestamp: new Date(now - 120000).toISOString() },
-    { id: 11, type: 'reasoning', agent: 'Strategist', text: 'Dovish Fed + strong tech earnings = favorable for growth stocks. Adjusting sector allocation: increase Tech to 35% (+5%), reduce Utilities to 8% (-3%), reduce Staples to 5% (-2%).', confidence: 0.77, timestamp: new Date(now - 100000).toISOString() },
-    { id: 12, type: 'action', agent: 'Executor', text: 'Portfolio rebalance initiated: 3 buy orders, 2 sell orders queued. Estimated transaction cost: $12.40.', confidence: 0.93, timestamp: new Date(now - 80000).toISOString() },
-  ];
-  return thoughts;
-}
-
 function ConfidenceBar({ value }: { value: number }) {
   const pct = value * 100;
   const color = pct >= 85 ? 'bg-citadel-success' : pct >= 70 ? 'bg-yellow-400' : 'bg-citadel-danger';
@@ -61,22 +42,22 @@ function ConfidenceBar({ value }: { value: number }) {
 
 export default function Brain() {
   const cotStream = useStore((s) => s.cotStream);
-  const [thoughts] = useState<ThoughtStep[]>(generateDemoThoughts);
   const [filter, setFilter] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const terminalRef = useRef<HTMLDivElement>(null);
 
-  // Combine real CoT log with demo thoughts
-  const allThoughts = [
-    ...thoughts,
-    ...cotStream.map((entry: string, i: number) => ({
-      id: 1000 + i,
-      type: 'reasoning' as const,
-      agent: 'System',
-      text: entry,
+  // Map real CoT entries to ThoughtStep format
+  const allThoughts: ThoughtStep[] = cotStream.map((entry: string, i: number) => {
+    // Try to parse structured entries like "[AGENT] type: message"
+    const match = entry.match(/^\[([^\]]+)\]\s*(\w+):\s*(.+)$/);
+    return {
+      id: i,
+      type: (match?.[2]?.toLowerCase() || 'reasoning') as ThoughtStep['type'],
+      agent: match?.[1] || 'System',
+      text: match?.[3] || entry,
       timestamp: new Date().toISOString(),
-    })),
-  ];
+    };
+  });
 
   const filtered = filter === 'all' ? allThoughts : allThoughts.filter(t => t.type === filter);
 
