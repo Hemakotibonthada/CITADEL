@@ -60,6 +60,62 @@ export interface OrdersResponse {
   total_filled: number;
 }
 
+export interface StockAnalysis {
+  current_price: number;
+  sentiment_score: number;
+  momentum: number;
+  volatility: number;
+  pe_ratio: number;
+  volume_trend: string;
+  composite_score: number;
+  recommendation: string;
+  should_invest: boolean;
+  reasoning: string[];
+}
+
+export interface Suggestion {
+  id: string;
+  symbol: string;
+  reason: string;
+  max_invest_amount: number | null;
+  auto_invest: boolean;
+  status: string;
+  analysis: StockAnalysis;
+  tracking: boolean;
+  created_at: string;
+  updated_at: string;
+  invested: boolean;
+  invest_details: Record<string, unknown> | null;
+}
+
+export interface SuggestionsResponse {
+  suggestions: Suggestion[];
+  total: number;
+  tracking: number;
+  invested: number;
+}
+
+export interface DailyLimits {
+  daily_invest_limit: number;
+  daily_loss_limit: number;
+  max_trades_per_day: number;
+}
+
+export interface DailyTracker {
+  date: string;
+  invested_today: number;
+  loss_today: number;
+  trades_today: number;
+}
+
+export interface DailyLimitsResponse {
+  limits: DailyLimits;
+  tracker: DailyTracker;
+  remaining_budget: number;
+  remaining_trades: number;
+  remaining_loss_budget: number;
+}
+
 export interface PortfolioState {
   total_equity: number;
   cash: number;
@@ -271,6 +327,8 @@ export interface CitadelStore {
   // Trading
   orders: OrdersResponse | null;
   watchlist: string[];
+  suggestions: SuggestionsResponse | null;
+  dailyLimits: DailyLimitsResponse | null;
   
   // Agents
   agents: Record<string, AgentStatus>;
@@ -355,6 +413,14 @@ export interface CitadelStore {
   fetchWatchlist: () => Promise<void>;
   addToWatchlist: (symbol: string) => Promise<void>;
   removeFromWatchlist: (symbol: string) => Promise<void>;
+  // Agent suggestions
+  suggestStock: (symbol: string, reason: string, maxAmount: number | null, autoInvest: boolean) => Promise<void>;
+  fetchSuggestions: () => Promise<void>;
+  removeSuggestion: (symbol: string) => Promise<void>;
+  refreshSuggestion: (symbol: string) => Promise<void>;
+  // Daily limits
+  fetchDailyLimits: () => Promise<void>;
+  updateDailyLimits: (limits: Partial<DailyLimits>) => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -396,6 +462,8 @@ export const useStore = create<CitadelStore>((set, get) => ({
   trades: [],
   orders: null,
   watchlist: [],
+  suggestions: null,
+  dailyLimits: null,
 
   agents: {},
   cotStream: [],
@@ -676,6 +744,60 @@ export const useStore = create<CitadelStore>((set, get) => ({
     try {
       const data = await apiFetch<{ symbols: string[] }>(`/watchlist/${symbol}`, { method: 'DELETE' });
       set({ watchlist: data.symbols });
+    } catch { /* offline */ }
+  },
+
+  // ── Agent Suggestions ──────────────────────────────────────────────
+  suggestStock: async (symbol, reason, maxAmount, autoInvest) => {
+    try {
+      const data = await apiFetch<SuggestionsResponse>('/agent/suggest', {
+        method: 'POST',
+        body: JSON.stringify({
+          symbol,
+          reason,
+          max_invest_amount: maxAmount,
+          auto_invest: autoInvest,
+        }),
+      });
+      // refresh full list after suggestion
+      get().fetchSuggestions();
+      // also refresh daily limits since auto-invest may have used budget
+      if (autoInvest) get().fetchDailyLimits();
+    } catch { /* offline */ }
+  },
+  fetchSuggestions: async () => {
+    try {
+      const data = await apiFetch<SuggestionsResponse>('/agent/suggestions');
+      set({ suggestions: data });
+    } catch { /* offline */ }
+  },
+  removeSuggestion: async (symbol) => {
+    try {
+      await apiFetch(`/agent/suggestions/${symbol}`, { method: 'DELETE' });
+      get().fetchSuggestions();
+    } catch { /* offline */ }
+  },
+  refreshSuggestion: async (symbol) => {
+    try {
+      await apiFetch(`/agent/suggestions/${symbol}/refresh`, { method: 'PUT' });
+      get().fetchSuggestions();
+    } catch { /* offline */ }
+  },
+
+  // ── Daily Limits ───────────────────────────────────────────────────
+  fetchDailyLimits: async () => {
+    try {
+      const data = await apiFetch<DailyLimitsResponse>('/daily-limits');
+      set({ dailyLimits: data });
+    } catch { /* offline */ }
+  },
+  updateDailyLimits: async (limits) => {
+    try {
+      const data = await apiFetch<DailyLimitsResponse>('/daily-limits', {
+        method: 'PUT',
+        body: JSON.stringify(limits),
+      });
+      set({ dailyLimits: data });
     } catch { /* offline */ }
   },
 }));

@@ -126,6 +126,19 @@ class WatchlistRequest(BaseModel):
     symbols: list[str]
 
 
+class StockSuggestionRequest(BaseModel):
+    symbol: str
+    reason: str = ""                    # user's reason for suggesting
+    max_invest_amount: float | None = None  # optional cap for this stock
+    auto_invest: bool = False            # let agent auto-invest if it sees scope
+
+
+class DailyLimitRequest(BaseModel):
+    daily_invest_limit: float | None = None      # max $ to invest per day
+    daily_loss_limit: float | None = None         # max $ loss per day before halt
+    max_trades_per_day: int | None = None         # max number of trades per day
+
+
 # ── WebSocket Manager ────────────────────────────────────
 
 class ConnectionManager:
@@ -212,6 +225,19 @@ _state: dict[str, Any] = {
     "order_history": [],           # completed/cancelled orders
     "open_orders": [],             # currently open limit/stop orders
     "watchlist": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "META", "SPY"],
+    # ── Agent Suggestions & Daily Limits ──
+    "suggestions": [],                 # list of user-suggested stocks for agent analysis
+    "daily_limits": {
+        "daily_invest_limit": 10000.0,  # max $ to invest per day
+        "daily_loss_limit": 2000.0,     # max $ loss per day
+        "max_trades_per_day": 20,       # max trades per day
+    },
+    "daily_tracker": {                 # resets each day
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "invested_today": 0.0,
+        "loss_today": 0.0,
+        "trades_today": 0,
+    },
 }
 
 
@@ -1130,6 +1156,263 @@ def create_app() -> FastAPI:
         if symbol in wl:
             wl.remove(symbol)
         return {"status": "removed", "symbols": wl}
+
+    # ── Agent Stock Suggestions ─────────────────────────
+
+    def _ensure_daily_tracker_reset():
+        """Reset daily tracker if the date has changed."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        tracker = _state["daily_tracker"]
+        if tracker["date"] != today:
+            tracker["date"] = today
+            tracker["invested_today"] = 0.0
+            tracker["loss_today"] = 0.0
+            tracker["trades_today"] = 0
+
+    def _run_agent_analysis(symbol: str) -> dict[str, Any]:
+        """Simulate AI agent analyzing a stock. Returns analysis dict."""
+        import random
+        rng = random.Random(hash(symbol))
+        price = round(50 + rng.random() * 500, 2)
+        sentiment_score = round(rng.uniform(-1, 1), 2)
+        momentum = round(rng.uniform(-5, 5), 2)
+        volatility = round(rng.uniform(0.5, 4.0), 2)
+        pe_ratio = round(rng.uniform(8, 60), 1)
+        volume_trend = rng.choice(["increasing", "decreasing", "stable"])
+
+        # Score calculation: weighted composite
+        score = round(
+            (sentiment_score * 25) +                   # sentiment weight
+            (min(momentum, 3) * 15) +                  # momentum (capped)
+            ((1 - min(volatility, 3) / 3) * 20) +     # lower vol = better
+            ((1 if pe_ratio < 25 else -0.5) * 15) +   # value score
+            (15 if volume_trend == "increasing" else 5), # volume boost
+            1
+        )
+
+        if score >= 60:
+            recommendation = "STRONG_BUY"
+        elif score >= 40:
+            recommendation = "BUY"
+        elif score >= 20:
+            recommendation = "HOLD"
+        elif score >= 0:
+            recommendation = "WATCH"
+        else:
+            recommendation = "AVOID"
+
+        should_invest = recommendation in ("STRONG_BUY", "BUY")
+
+        return {
+            "current_price": price,
+            "sentiment_score": sentiment_score,
+            "momentum": momentum,
+            "volatility": volatility,
+            "pe_ratio": pe_ratio,
+            "volume_trend": volume_trend,
+            "composite_score": score,
+            "recommendation": recommendation,
+            "should_invest": should_invest,
+            "reasoning": [
+                f"Sentiment analysis: {'Bullish' if sentiment_score > 0.3 else 'Bearish' if sentiment_score < -0.3 else 'Neutral'} ({sentiment_score:+.2f})",
+                f"Price momentum: {momentum:+.2f}% — {'strong uptrend' if momentum > 2 else 'mild uptrend' if momentum > 0 else 'downtrend'}",
+                f"Volatility: {volatility:.1f}% — {'high risk' if volatility > 2.5 else 'moderate' if volatility > 1.5 else 'stable'}",
+                f"P/E Ratio: {pe_ratio:.1f} — {'overvalued' if pe_ratio > 35 else 'fair value' if pe_ratio > 15 else 'undervalued'}",
+                f"Volume trend: {volume_trend}",
+                f"Composite score: {score}/100 → {recommendation}",
+            ],
+        }
+
+    @app.post("/api/agent/suggest")
+    async def suggest_stock_to_agent(req: StockSuggestionRequest) -> dict[str, Any]:
+        """User suggests a stock symbol for the agent to track and analyze."""
+        symbol = req.symbol.upper().strip()
+        if not symbol:
+            raise HTTPException(400, "Symbol is required")
+
+        # Check if already suggested
+        existing = [s for s in _state["suggestions"] if s["symbol"] == symbol]
+        if existing:
+            # Re-analyze
+            analysis = _run_agent_analysis(symbol)
+            existing[0]["analysis"] = analysis
+            existing[0]["status"] = "analyzed"
+            existing[0]["updated_at"] = datetime.now(timezone.utc).isoformat()
+            if req.reason:
+                existing[0]["reason"] = req.reason
+            if req.max_invest_amount is not None:
+                existing[0]["max_invest_amount"] = req.max_invest_amount
+            existing[0]["auto_invest"] = req.auto_invest
+
+            # Auto-invest logic
+            if req.auto_invest and analysis["should_invest"]:
+                _try_auto_invest(existing[0])
+
+            return {"status": "updated", "suggestion": existing[0]}
+
+        # New suggestion
+        analysis = _run_agent_analysis(symbol)
+        suggestion = {
+            "id": f"sug_{symbol}_{int(time.time())}",
+            "symbol": symbol,
+            "reason": req.reason,
+            "max_invest_amount": req.max_invest_amount,
+            "auto_invest": req.auto_invest,
+            "status": "analyzed",
+            "analysis": analysis,
+            "tracking": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "invested": False,
+            "invest_details": None,
+        }
+
+        # Auto-invest if enabled and agent recommends
+        if req.auto_invest and analysis["should_invest"]:
+            _try_auto_invest(suggestion)
+
+        _state["suggestions"].append(suggestion)
+
+        # Also add to watchlist if not present
+        wl = _state["watchlist"]
+        if symbol not in wl:
+            wl.append(symbol)
+
+        return {"status": "created", "suggestion": suggestion}
+
+    def _try_auto_invest(suggestion: dict) -> None:
+        """Attempt auto-invest for a suggestion based on daily limits."""
+        _ensure_daily_tracker_reset()
+        tracker = _state["daily_tracker"]
+        limits = _state["daily_limits"]
+        analysis = suggestion["analysis"]
+        settings = _state["portfolio_settings"]
+
+        # Check daily trade count limit
+        if tracker["trades_today"] >= limits["max_trades_per_day"]:
+            suggestion["invest_details"] = {"rejected": True, "reason": "Daily trade limit reached"}
+            return
+
+        # Calculate invest amount
+        price = analysis["current_price"]
+        max_from_suggestion = suggestion.get("max_invest_amount") or float('inf')
+        max_from_daily = limits["daily_invest_limit"] - tracker["invested_today"]
+        max_from_portfolio = settings["initial_capital"] * (settings["max_position_pct"] / 100)
+
+        invest_amount = min(max_from_suggestion, max_from_daily, max_from_portfolio)
+        if invest_amount <= 0:
+            suggestion["invest_details"] = {"rejected": True, "reason": "No remaining daily budget"}
+            return
+
+        qty = int(invest_amount / price)
+        if qty <= 0:
+            suggestion["invest_details"] = {"rejected": True, "reason": "Price too high for available budget"}
+            return
+
+        actual_cost = round(qty * price, 2)
+
+        # Deduct from cash
+        cash = _state["portfolio_settings"]["initial_capital"]
+        for p in _state["manual_positions"]:
+            cash -= p["quantity"] * p["avg_cost"]
+        if actual_cost > cash:
+            suggestion["invest_details"] = {"rejected": True, "reason": "Insufficient cash"}
+            return
+
+        # Create position
+        _state["manual_positions"].append({
+            "symbol": suggestion["symbol"],
+            "quantity": qty,
+            "avg_cost": price,
+            "side": "long",
+            "source": "agent_auto",
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # Record order
+        order_id = f"auto_{suggestion['symbol']}_{int(time.time())}"
+        _state["order_history"].append({
+            "id": order_id,
+            "symbol": suggestion["symbol"],
+            "action": "BUY",
+            "quantity": qty,
+            "size_pct": None,
+            "order_type": "market",
+            "limit_price": None,
+            "status": "filled",
+            "filled_price": price,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "filled_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # Update tracker
+        tracker["invested_today"] += actual_cost
+        tracker["trades_today"] += 1
+
+        suggestion["invested"] = True
+        suggestion["invest_details"] = {
+            "rejected": False,
+            "order_id": order_id,
+            "quantity": qty,
+            "price": price,
+            "total_cost": actual_cost,
+            "invested_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    @app.get("/api/agent/suggestions")
+    async def get_suggestions() -> dict[str, Any]:
+        """Get all user-suggested stocks with agent analysis."""
+        return {
+            "suggestions": _state["suggestions"],
+            "total": len(_state["suggestions"]),
+            "tracking": sum(1 for s in _state["suggestions"] if s.get("tracking")),
+            "invested": sum(1 for s in _state["suggestions"] if s.get("invested")),
+        }
+
+    @app.delete("/api/agent/suggestions/{symbol}")
+    async def remove_suggestion(symbol: str) -> dict[str, Any]:
+        """Stop tracking a suggested stock."""
+        symbol = symbol.upper()
+        before = len(_state["suggestions"])
+        _state["suggestions"] = [s for s in _state["suggestions"] if s["symbol"] != symbol]
+        if len(_state["suggestions"]) == before:
+            raise HTTPException(404, f"Suggestion for {symbol} not found")
+        return {"status": "removed", "symbol": symbol}
+
+    @app.put("/api/agent/suggestions/{symbol}/refresh")
+    async def refresh_suggestion(symbol: str) -> dict[str, Any]:
+        """Re-analyze a suggested stock."""
+        symbol = symbol.upper()
+        for s in _state["suggestions"]:
+            if s["symbol"] == symbol:
+                s["analysis"] = _run_agent_analysis(symbol)
+                s["updated_at"] = datetime.now(timezone.utc).isoformat()
+                return {"status": "refreshed", "suggestion": s}
+        raise HTTPException(404, f"Suggestion for {symbol} not found")
+
+    # ── Daily Investment Limits ───────────────────────────
+
+    @app.get("/api/daily-limits")
+    async def get_daily_limits() -> dict[str, Any]:
+        _ensure_daily_tracker_reset()
+        return {
+            "limits": _state["daily_limits"],
+            "tracker": _state["daily_tracker"],
+            "remaining_budget": max(0, _state["daily_limits"]["daily_invest_limit"] - _state["daily_tracker"]["invested_today"]),
+            "remaining_trades": max(0, _state["daily_limits"]["max_trades_per_day"] - _state["daily_tracker"]["trades_today"]),
+            "remaining_loss_budget": max(0, _state["daily_limits"]["daily_loss_limit"] - _state["daily_tracker"]["loss_today"]),
+        }
+
+    @app.put("/api/daily-limits")
+    async def update_daily_limits(req: DailyLimitRequest) -> dict[str, Any]:
+        limits = _state["daily_limits"]
+        if req.daily_invest_limit is not None:
+            limits["daily_invest_limit"] = req.daily_invest_limit
+        if req.daily_loss_limit is not None:
+            limits["daily_loss_limit"] = req.daily_loss_limit
+        if req.max_trades_per_day is not None:
+            limits["max_trades_per_day"] = req.max_trades_per_day
+        return {"status": "updated", "limits": limits}
 
     @app.post("/api/killswitch")
     async def kill_switch(request: KillSwitchRequest) -> dict[str, Any]:
